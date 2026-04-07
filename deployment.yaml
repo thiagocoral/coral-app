@@ -3,7 +3,7 @@ kind: Deployment
 metadata:
   name: coral-app
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: coral-app
@@ -14,10 +14,15 @@ spec:
     spec:
       containers:
       - name: app-container
-        image: docker.io/thicoral/coral-app:v1
-        imagePullPolicy: Always
+        image: thicoral/coral-app:v1
         ports:
         - containerPort: 8000
+        # --- COLE AS LINHAS ABAIXO ---
+        env:
+        - name: NAI_ENDPOINT
+          value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
+        - name: NAI_API_KEY
+          value: "c5e46281-8985-48ae-b367-fe61c7875d71"
         resources:
           limits:
             cpu: "500m"
@@ -25,13 +30,14 @@ spec:
           requests:
             cpu: "100m"
             memory: "128Mi"
+        # -----------------------------
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: app-service
 spec:
-  type: LoadBalancer # Mude de ClusterIP para LoadBalancer
+  type: LoadBalancer
   ports:
   - port: 80
     targetPort: 8000
