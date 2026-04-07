@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: coral-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: coral-frontend
+  template:
+    metadata:
+      labels:
+        app: coral-frontend
+    spec:
+      containers:
+      - name: frontend-container
+        image: thicoral/coral-frontend:v1 # Você precisará dar push nessa nova imagem
+        ports:
+        - containerPort: 8501
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 8501
+  selector:
+    app: coral-frontend
