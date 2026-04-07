@@ -2,4 +2,4 @@ fastapi
 uvicorn
 streamlit
 requests
-httpx  <-- Adicione esta linha
+httpx
