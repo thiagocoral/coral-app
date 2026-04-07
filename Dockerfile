@@ -1,7 +1,8 @@
 FROM python:3.9-slim
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-# O Streamlit roda na porta 8501 por padrão
-CMD ["streamlit", "run", "frontend.py", "--server.port=8501", "--server.address=0.0.0.0"]
+EXPOSE 8000
+# Note o caminho para o main:core
+CMD ["uvicorn", "core.main:app", "--host", "0.0.0.0", "--port", "8000"]

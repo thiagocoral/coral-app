@@ -9,20 +9,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4 # Atualizado para v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3 # Atualizado para v3
 
       - name: Login to Docker Hub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3 # Atualizado para v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build do BACKEND (Tag: v1)
+      # Build do BACKEND
       - name: Build and Push Backend
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5 # Atualizado para v5
         with:
           context: .
           file: ./Dockerfile
@@ -30,12 +30,12 @@ jobs:
           push: true
           tags: thicoral/coral-app:v1
 
-      # Build do FRONTEND (Tag: frontend)
+      # Build do FRONTEND
       - name: Build and Push Frontend
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v5 # Atualizado para v5
         with:
           context: .
-          file: ./Dockerfile.frontend
+          file: ./Dockerfile.frontend # O GitHub vai procurar este arquivo agora!
           platforms: linux/amd64
           push: true
           tags: thicoral/coral-app:frontend
