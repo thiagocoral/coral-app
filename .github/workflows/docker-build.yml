@@ -22,20 +22,20 @@ jobs:
 
       # Build do BACKEND
       - name: Build and Push Backend
-        uses: docker/build-push-action@v5 # Atualizado para v5
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64 # <--- ISSO É VITAL PARA O NUTANIX
           push: true
           tags: thicoral/coral-app:v1
 
       # Build do FRONTEND
       - name: Build and Push Frontend
-        uses: docker/build-push-action@v5 # Atualizado para v5
+        uses: docker/build-push-action@v5
         with:
           context: .
-          file: ./Dockerfile.frontend # O GitHub vai procurar este arquivo agora!
-          platforms: linux/amd64
+          file: ./Dockerfile.frontend
+          platforms: linux/amd64 # <--- ISSO É VITAL PARA O NUTANIX
           push: true
           tags: thicoral/coral-app:frontend
