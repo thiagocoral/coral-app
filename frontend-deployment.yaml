@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: coral-frontend
+  namespace: coral-project-krq9s
 spec:
   replicas: 1
   selector:
@@ -14,18 +15,27 @@ spec:
     spec:
       containers:
       - name: frontend-container
-        image: thicoral/coral-frontend:v1 # Você precisará dar push nessa nova imagem
+        image: thicoral/coral-app:frontend # Tag que o GitHub Actions vai gerar
+        imagePullPolicy: Always
         ports:
         - containerPort: 8501
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "250m"
+            memory: "256Mi"
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: frontend-service
+  namespace: coral-project-krq9s
 spec:
   type: LoadBalancer
   ports:
-  - port: 80
-    targetPort: 8501
+  - port: 80         # Porta que você vai digitar no navegador
+    targetPort: 8501 # Porta onde o Streamlit está ouvindo
   selector:
     app: coral-frontend
