@@ -17,7 +17,7 @@ st.title("🤖 Coral AI Assistant")
 st.caption("🚀 Rodando localmente via **Nutanix Enterprise AI (NAI)**")
 
 # URL da sua API no Kubernetes (IP que você já tem)
-API_URL = "http://10.54.93.59/api/v1/chat/ask"
+API_URL = "http://app-service/api/v1/chat/ask"
 
 # Inicializa o histórico de chat
 if "messages" not in st.session_state:
