@@ -31,7 +31,7 @@ kind: Service
 metadata:
   name: app-service
 spec:
-  type: ClusterIP
+  type: LoadBalancer # Mude de ClusterIP para LoadBalancer
   ports:
   - port: 80
     targetPort: 8000
