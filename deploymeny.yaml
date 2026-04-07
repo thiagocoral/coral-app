@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: meu-app-modular
+  name: coral-app
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: modular-app
+      app: coral-app
   template:
     metadata:
       labels:
-        app: modular-app
+        app: coral-app
     spec:
       containers:
       - name: app-container
-        image: seu-usuario/meu-app-modular:latest
+        image: thicoral/coral-app:latest
         ports:
         - containerPort: 8000
 ---
@@ -28,4 +28,4 @@ spec:
   - port: 80
     targetPort: 8000
   selector:
-    app: modular-app
+    app: coral-app
