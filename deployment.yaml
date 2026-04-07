@@ -14,7 +14,7 @@ spec:
     spec:
       containers:
       - name: app-container
-        image: thicoral/coral-app:v1
+        image: index.docker.io/thicoral/coral-app:v1
         imagePullPolicy: Always # <--- ADICIONE ESTA LINHA AQUI
         ports:
         - containerPort: 8000
