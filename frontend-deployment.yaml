@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: frontend-container
-        image: index.docker.io/thicoral/coral-app:frontend # Tag que o GitHub Actions vai gerar
+        image: docker.io/thicoral/coral-app:frontend # Tag que o GitHub Actions vai gerar
         imagePullPolicy: Always
         ports:
         - containerPort: 8501
