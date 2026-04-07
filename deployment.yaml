@@ -15,9 +15,9 @@ spec:
       containers:
       - name: app-container
         image: thicoral/coral-app:v1
+        imagePullPolicy: Always # <--- ADICIONE ESTA LINHA AQUI
         ports:
         - containerPort: 8000
-        # --- COLE AS LINHAS ABAIXO ---
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
@@ -30,7 +30,6 @@ spec:
           requests:
             cpu: "100m"
             memory: "128Mi"
-        # -----------------------------
 ---
 apiVersion: v1
 kind: Service
