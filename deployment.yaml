@@ -34,6 +34,19 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
+  name: coral-frontend-service
+  namespace: coral-project-krq9s
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80        # Porta que o cliente vai digitar no navegador
+    targetPort: 8501 # Porta interna do Streamlit
+  selector:
+    app: coral-frontend
+---
+apiVersion: v1
+kind: Service
+metadata:
   name: app-service
 spec:
   type: LoadBalancer
