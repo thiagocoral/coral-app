@@ -20,7 +20,7 @@ async def ask_chatbot(message: ChatMessage):
     }
     
     payload = {
-        "model": "llama3-8b", # <--- CERTIFIQUE-SE QUE ESTE NOME ESTÁ IGUAL NO PAINEL DO NAI
+        "model": "coral-endpoint", # <--- CERTIFIQUE-SE QUE ESTE NOME ESTÁ IGUAL NO PAINEL DO NAI
         "messages": [{"role": "user", "content": message.user_input}],
         "temperature": 0.7
     }
