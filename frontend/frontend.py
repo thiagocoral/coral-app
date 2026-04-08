@@ -46,7 +46,13 @@ if prompt := st.chat_input("Pergunte algo para a IA do Nutanix..."):
         try:
             start_time = time.time()
             # Enviando o JSON que o FastAPI espera: {"user_input": "texto"}
-            response = requests.post(API_URL, json={"user_input": prompt}, timeout=60)
+            payload = {
+                "user_input": prompt,
+                "history": st.session_state.messages, # Enviamos o que já foi conversado
+                "max_tokens": 200
+            }
+            
+            response = requests.post(API_URL, json=payload, timeout=120)
             end_time = time.time()
             
             if response.status_code == 200:
