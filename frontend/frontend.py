@@ -16,20 +16,21 @@ st.markdown("""
 # 3. Barra Lateral (Sidebar) - Configurações Dinâmicas
 with st.sidebar:
     st.title("⚙️ Configurações de IA")
-    st.info("Ajuste os parâmetros abaixo para personalizar a conexão.")
+    st.info("Valores carregados automaticamente do Kubernetes.")
     
-    # Estes campos já vêm preenchidos com os padrões do seu Bootcamp
+    # Buscamos do manifesto usando os.getenv
+    # O segundo parâmetro é o "fallback" caso a variável não exista no pod
     user_endpoint = st.text_input(
         "Nutanix Endpoint URL", 
-        value="https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
+        value=os.getenv("NAI_ENDPOINT", "")
     )
     user_model = st.text_input(
         "Model Name", 
-        value="coral-endpoint"
+        value=os.getenv("MODEL_NAME", "coral-endpoint")
     )
     user_api_key = st.text_input(
         "API Key", 
-        value="c5e46281-8985-48ae-b367-fe61c7875d71", 
+        value=os.getenv("NAI_API_KEY", ""), 
         type="password"
     )
     
