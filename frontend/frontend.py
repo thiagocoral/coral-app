@@ -36,41 +36,45 @@ if prompt := st.chat_input("Perunte algo para a IA do Nutanix..."):
         st.markdown(prompt)
 
     # Chamada para o Backend (FastAPI)
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        message_placeholder.markdown("*Pensando...*")
-        
-        # Inicializa a variável com um valor padrão para evitar o NameError
-        full_response = "" 
-        
-        try:
-            start_time = time.time()
-            # Aumentamos o timeout para 60 segundos no frontend também
-            response = requests.post(API_URL, json={"user_input": prompt}, timeout=60)
-            end_time = time.time()
-            
-            if response.status_code == 200:
-                res_json = response.json()
-                full_response = res_json.get("response", "Erro no formato da resposta.")
-                
-                if res_json.get("status") == "error":
-                    st.warning(full_response)
-                else:
-                    # Efeito de digitação (seu loop for char in full_response...)
-                    displayed_text = ""
-                    for char in full_response:
-                        displayed_text += char
-                        message_placeholder.markdown(displayed_text + "▌")
-                        time.sleep(0.01)
-                    message_placeholder.markdown(full_response)
-                    st.sidebar.metric("Latência NAI", f"{end_time - start_time:.2f}s")
-            else:
-                full_response = f"Erro na API: Status {response.status_code}"
-                st.error(full_response)
+    # No seu frontend.py, dentro do bloco de input:
 
-        except Exception as e:
-            full_response = f"Falha de conexão ou Timeout: {str(e)}"
-            st.error(full_response)
+with st.chat_message("assistant"):
+    message_placeholder = st.empty()
+    message_placeholder.markdown("*Pensando...*")
+    
+    # 1. INICIALIZE A VARIÁVEL AQUI
+    full_response = "Desculpe, não consegui obter uma resposta a tempo." 
+
+    try:
+        start_time = time.time()
+        # 2. AUMENTE O TIMEOUT PARA 60 SEGUNDOS
+        response = requests.post(API_URL, json={"user_input": prompt}, timeout=60)
+        end_time = time.time()
         
-        # Agora o append nunca vai falhar, pois full_response foi inicializada no topo
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        if response.status_code == 200:
+            res_json = response.json()
+            full_response = res_json.get("response", "Erro no formato da resposta.")
+            
+            if res_json.get("status") == "error":
+                st.warning(full_response)
+            else:
+                # Lógica de exibição (efeito de digitação) que você já tem...
+                displayed_text = ""
+                for char in full_response:
+                    displayed_text += char
+                    message_placeholder.markdown(displayed_text + "▌")
+                    time.sleep(0.01)
+                message_placeholder.markdown(full_response)
+        else:
+            full_response = f"Erro na API: Status {response.status_code}"
+            st.error(full_response)
+
+    except requests.exceptions.Timeout:
+        full_response = "A IA demorou demais para responder (Timeout). Tente novamente."
+        st.error(full_response)
+    except Exception as e:
+        full_response = f"Falha de conexão: {str(e)}"
+        st.error(full_response)
+
+    # Agora esta linha NUNCA vai dar NameError
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
