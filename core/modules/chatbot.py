@@ -4,13 +4,15 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
+# 1. Definir o Router primeiro
 router = APIRouter()
 
-# Variáveis de fallback (vêm do Manifesto)
-DEFAULT_ENDPOINT = os.getenv("NAI_ENDPOINT")
+# 2. Definir os Fallbacks do Sistema (Lendo do Manifesto)
+DEFAULT_ENDPOINT = os.getenv("NAI_ENDPOINT", "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions")
 DEFAULT_KEY = os.getenv("NAI_API_KEY")
-DEFAULT_MODEL = os.getenv("MODEL_NAME")
+DEFAULT_MODEL = os.getenv("MODEL_NAME", "coral-endpoint")
 
+# 3. Definir o Modelo de Dados ANTES da função que o utiliza
 class ChatMessage(BaseModel):
     user_input: str
     history: List[Dict[str, Any]] = []
@@ -18,9 +20,10 @@ class ChatMessage(BaseModel):
     api_key: Optional[str] = None
     model_name: Optional[str] = None
 
+# 4. Agora sim, a função que usa o ChatMessage
 @router.post("/ask")
 async def ask_chatbot(message: ChatMessage):
-    # Lógica: Usa o que vem do Front, se for nulo, usa o Default do Sistema
+    # Lógica de Fallback: Prioridade para o Front, depois o Sistema
     final_endpoint = message.endpoint_url or DEFAULT_ENDPOINT
     final_key = message.api_key or DEFAULT_KEY
     final_model = message.model_name or DEFAULT_MODEL
@@ -30,7 +33,7 @@ async def ask_chatbot(message: ChatMessage):
         "Content-Type": "application/json"
     }
     
-    # Monta o histórico completo
+    # Monta o histórico completo enviando para o NAI
     all_messages = message.history + [{"role": "user", "content": message.user_input}]
     
     payload = {
