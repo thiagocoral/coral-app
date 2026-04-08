@@ -22,7 +22,7 @@ spec:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
         - name: NAI_API_KEY
-          value: "c5e46281-8985-48ae-b367-fe61c7875d71"
+          value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
         resources:
           limits:
             cpu: "500m"
