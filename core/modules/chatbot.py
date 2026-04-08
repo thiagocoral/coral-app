@@ -13,31 +13,28 @@ NAI_API_KEY = os.getenv("NAI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "coral-endpoint")
 
 # 2. Modelo atualizado para suportar o histórico (Persistência)
-class ChatMessage(BaseModel):
-    user_input: str
-    history: List[Dict[str, Any]] = []
-
-@router.post("/ask")
+router.post("/ask")
 async def ask_chatbot(message: ChatMessage):
+    # Lógica de Fallback: Prioridade para o que vem do Front, depois o Sistema
+    final_endpoint = message.endpoint_url or os.getenv("NAI_ENDPOINT")
+    final_key = message.api_key or os.getenv("NAI_API_KEY")
+    final_model = message.model_name or os.getenv("MODEL_NAME")
+
     headers = {
-        "Authorization": f"Bearer {NAI_API_KEY}",
+        "Authorization": f"Bearer {final_key}",
         "Content-Type": "application/json"
     }
     
-    # 3. Monta o payload enviando o histórico completo para o NAI
-    messages_to_send = message.history + [{"role": "user", "content": message.user_input}]
-    
     payload = {
-        "model": MODEL_NAME, 
-        "messages": messages_to_send,
+        "model": final_model,
+        "messages": message.history + [{"role": "user", "content": message.user_input}],
         "temperature": 0.7,
         "max_tokens": 1024
     }
 
     async with httpx.AsyncClient(verify=False) as client:
         try:
-            # Timeout de 120s para aguentar o processamento do histórico
-            response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=120.0)
+            response = await client.post(final_endpoint, json=payload, headers=headers, timeout=120.0)
             
             if response.status_code == 200:
                 data = response.json()
