@@ -27,7 +27,7 @@ async def ask_chatbot(message: ChatMessage):
     messages_to_send = message.history + [{"role": "user", "content": message.user_input}]
     
     payload = {
-        "model": "llama3-8b", 
+        "model": "coral-endpoint", 
         "messages": messages_to_send,
         "temperature": 0.7,
         "max_tokens": 1024
