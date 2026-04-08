@@ -10,6 +10,7 @@ router = APIRouter()
 # Lendo das variáveis de ambiente
 NAI_ENDPOINT = os.getenv("NAI_ENDPOINT", "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions")
 NAI_API_KEY = os.getenv("NAI_API_KEY")
+MODEL_NAME = os.getenv("MODEL_NAME", "coral-endpoint")
 
 # 2. Modelo atualizado para suportar o histórico (Persistência)
 class ChatMessage(BaseModel):
@@ -27,7 +28,7 @@ async def ask_chatbot(message: ChatMessage):
     messages_to_send = message.history + [{"role": "user", "content": message.user_input}]
     
     payload = {
-        "model": "coral-endpoint", 
+        "model": MODEL_NAME, 
         "messages": messages_to_send,
         "temperature": 0.7,
         "max_tokens": 1024

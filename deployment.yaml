@@ -23,6 +23,8 @@ spec:
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
         - name: NAI_API_KEY
           value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
+        - name: MODEL_NAME
+          value: "coral-endpoint"
         resources:
           limits:
             cpu: "500m"
