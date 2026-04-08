@@ -12,7 +12,7 @@ spec:
     metadata:
       labels:
         app: coral-frontend
-    spec:
+    spec: 
       containers:
       - name: frontend-container
         image: docker.io/thicoral/coral-app:frontend # Tag que o GitHub Actions vai gerar

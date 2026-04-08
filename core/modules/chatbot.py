@@ -19,20 +19,23 @@ async def ask_chatbot(message: ChatMessage):
         "Content-Type": "application/json"
     }
     
-    # Estrutura padrão OpenAI que o NAI costuma seguir
     payload = {
-        "model": "coral", # Nome da sua Key/Modelo no NAI
+        "model": "llama3-8b", # <--- CERTIFIQUE-SE QUE ESTE NOME ESTÁ IGUAL NO PAINEL DO NAI
         "messages": [{"role": "user", "content": message.user_input}],
         "temperature": 0.7
     }
 
-    async with httpx.AsyncClient(verify=False) as client: # verify=False se o SSL for self-signed
-        response = await client.post(NAI_ENDPOINT, json=payload, headers=headers)
-        
-    if response.status_code == 200:
-        data = response.json()
-        # Ajuste o parsing conforme o retorno real do seu NAI
-        bot_response = data['choices'][0]['message']['content']
-        return {"status": "success", "response": bot_response}
-    else:
-        return {"status": "error", "message": f"Erro no NAI: {response.text}"}
+    async with httpx.AsyncClient(verify=False) as client:
+        try:
+            response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=60.0)
+            
+            if response.status_code == 200:
+                data = response.json()
+                # O NAI segue o padrão OpenAI: choices[0].message.content
+                bot_response = data['choices'][0]['message']['content']
+                return {"status": "success", "response": bot_response}
+            else:
+                # Retorna o erro real do NAI para facilitar o seu debug
+                return {"status": "error", "response": f"Erro NAI ({response.status_code}): {response.text}"}
+        except Exception as e:
+            return {"status": "error", "response": f"Falha interna no Backend: {str(e)}"}
