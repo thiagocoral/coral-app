@@ -27,7 +27,7 @@ async def ask_chatbot(message: ChatMessage):
 
     async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=60.0)
+            response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=120.0)
             
             if response.status_code == 200:
                 data = response.json()
