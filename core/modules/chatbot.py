@@ -1,16 +1,10 @@
-import os
-import httpx # Recomendado para FastAPI por ser assíncrono
-from fastapi import APIRouter
+# chatbot.py
 from pydantic import BaseModel
-
-router = APIRouter()
-
-# Lendo das variáveis de ambiente do sistema
-NAI_ENDPOINT = os.getenv("NAI_ENDPOINT", "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions")
-NAI_API_KEY = os.getenv("NAI_API_KEY")
+from typing import List, Dict
 
 class ChatMessage(BaseModel):
     user_input: str
+    history: List[Dict[str, str]] = [] # Aceita a lista de mensagens anteriores
 
 @router.post("/ask")
 async def ask_chatbot(message: ChatMessage):
@@ -19,23 +13,18 @@ async def ask_chatbot(message: ChatMessage):
         "Content-Type": "application/json"
     }
     
+    # Aqui replicamos a lógica do seu código antigo: 
+    # Pegamos o histórico e adicionamos a nova pergunta do usuário
+    messages_to_send = message.history + [{"role": "user", "content": message.user_input}]
+    
     payload = {
-        "model": "coral-endpoint", # <--- CERTIFIQUE-SE QUE ESTE NOME ESTÁ IGUAL NO PAINEL DO NAI
-        "messages": [{"role": "user", "content": message.user_input}],
-        "temperature": 0.7
+        "model": "llama3-8b", # Ou o nome do seu endpoint
+        "messages": messages_to_send,
+        "temperature": 0.7,
+        "max_tokens": 1024
     }
 
     async with httpx.AsyncClient(verify=False) as client:
-        try:
-            response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=120.0)
-            
-            if response.status_code == 200:
-                data = response.json()
-                # O NAI segue o padrão OpenAI: choices[0].message.content
-                bot_response = data['choices'][0]['message']['content']
-                return {"status": "success", "response": bot_response}
-            else:
-                # Retorna o erro real do NAI para facilitar o seu debug
-                return {"status": "error", "response": f"Erro NAI ({response.status_code}): {response.text}"}
-        except Exception as e:
-            return {"status": "error", "response": f"Falha interna no Backend: {str(e)}"}
+        # Aumentamos o timeout para 120s pois o histórico longo demora mais
+        response = await client.post(NAI_ENDPOINT, json=payload, headers=headers, timeout=120.0)
+        # ... resto do processamento (retornando data['choices'][0]['message']['content'])

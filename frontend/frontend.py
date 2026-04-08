@@ -30,51 +30,32 @@ for message in st.session_state.messages:
 
 # Input do Usuário
 # Input do Usuário
-if prompt := st.chat_input("Pergunte algo para a IA do Nutanix..."):
-    # Adiciona mensagem do usuário ao histórico
+# frontend.py
+if prompt := st.chat_input("Pergunte algo..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # TODO O BLOCO ABAIXO DEVE ESTAR IDENTADO DENTRO DO "IF PROMPT"
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
-        message_placeholder.markdown("*Pensando...*")
+        full_response = ""
         
-        full_response = "Não foi possível obter resposta." 
-
         try:
-            start_time = time.time()
-            # Enviando o JSON que o FastAPI espera: {"user_input": "texto"}
+            # Replicando a lógica de enviar o histórico
             payload = {
                 "user_input": prompt,
-                "history": st.session_state.messages, # Enviamos o que já foi conversado
-                "max_tokens": 200
+                "history": st.session_state.messages[:-1] # Envia tudo menos a última (que já vamos add no backend)
             }
             
-            response = requests.post(API_URL, json=payload, timeout=120)
-            end_time = time.time()
+            response = requests.post(API_URL, json=payload, timeout=90)
             
             if response.status_code == 200:
-                res_json = response.json()
-                full_response = res_json.get("response", "Erro no formato da resposta.")
-                
-                if res_json.get("status") == "error":
-                    st.warning(full_response)
-                else:
-                    displayed_text = ""
-                    for char in full_response:
-                        displayed_text += char
-                        message_placeholder.markdown(displayed_text + "▌")
-                        time.sleep(0.01)
-                    message_placeholder.markdown(full_response)
+                full_response = response.json().get("response")
+                # Exibe a resposta (com seu efeito de digitação)
+                message_placeholder.markdown(full_response)
             else:
-                # Se der 422, vamos mostrar o que o FastAPI reclamou
-                full_response = f"Erro na API {response.status_code}: {response.text}"
-                st.error(full_response)
-
+                st.error(f"Erro: {response.status_code}")
         except Exception as e:
-            full_response = f"Falha de conexão: {e}"
-            st.error(full_response)
+            st.error(f"Erro de conexão: {e}")
 
         st.session_state.messages.append({"role": "assistant", "content": full_response})
