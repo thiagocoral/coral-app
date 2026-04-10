@@ -14,7 +14,7 @@ spec:
         app: coral-frontend
     spec: 
       containers:
-      - name: frontend-container
+      - name: frontend
         image: docker.io/thicoral/coral-app:frontend
         imagePullPolicy: Always
         env:
