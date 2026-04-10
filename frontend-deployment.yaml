@@ -16,6 +16,7 @@ spec:
       containers:
       - name: frontend-container
         image: docker.io/thicoral/coral-app:frontend
+        imagePullPolicy: Always
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
