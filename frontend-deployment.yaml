@@ -15,7 +15,8 @@ spec:
     spec: 
       containers:
       - name: frontend
-        image: docker.io/thicoral/coral-app:frontend # Tag correta do GitHub Actions
+        # Mudamos para :latest também
+        image: docker.io/thicoral/coral-app:latest 
         imagePullPolicy: Always
         env:
         - name: NAI_ENDPOINT
@@ -25,17 +26,4 @@ spec:
         - name: MODEL_NAME
           value: "coral-endpoint"
         ports:
-        - containerPort: 8501 # Streamlit padrão
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: frontend-service
-  namespace: coral-project-krq9s
-spec:
-  type: LoadBalancer
-  ports:
-  - port: 80         
-    targetPort: 8501 
-  selector:
-    app: coral-frontend
+        - containerPort: 8501

@@ -15,7 +15,8 @@ spec:
     spec:
       containers:
       - name: app-container
-        image: docker.io/thicoral/coral-app:v1  # Tag correta do GitHub Actions
+        # Mudamos para :latest para "limpar" o erro de manifest not found
+        image: docker.io/thicoral/coral-app:latest 
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -26,16 +27,3 @@ spec:
           value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
         - name: MODEL_NAME
           value: "coral-endpoint"
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: app-service
-  namespace: coral-project-krq9s
-spec:
-  type: LoadBalancer
-  ports:
-  - port: 80
-    targetPort: 8000
-  selector:
-    app: coral-app
