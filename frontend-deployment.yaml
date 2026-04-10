@@ -15,9 +15,9 @@ spec:
     spec: 
       containers:
       - name: frontend
-        # Mudamos para :latest também
-        image: docker.io/thicoral/coral-app:latest 
+        image: docker.io/thicoral/coral-app:latest
         imagePullPolicy: Always
+        # Removemos o comando "command:" daqui para usar o do Dockerfile
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
@@ -27,3 +27,16 @@ spec:
           value: "coral-endpoint"
         ports:
         - containerPort: 8501
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: coral-project-krq9s
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80         
+    targetPort: 8501 
+  selector:
+    app: coral-frontend

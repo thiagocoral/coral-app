@@ -4,7 +4,7 @@ metadata:
   name: coral-app
   namespace: coral-project-krq9s
 spec:
-  replicas: 2
+  replicas: 1 # Reduzi para 1 para facilitar o debug
   selector:
     matchLabels:
       app: coral-app
@@ -15,8 +15,7 @@ spec:
     spec:
       containers:
       - name: app-container
-        # Mudamos para :latest para "limpar" o erro de manifest not found
-        image: docker.io/thicoral/coral-app:latest 
+        image: docker.io/thicoral/coral-app:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -27,3 +26,15 @@ spec:
           value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
         - name: MODEL_NAME
           value: "coral-endpoint"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  namespace: coral-project-krq9s
+spec:
+  ports:
+  - port: 80
+    targetPort: 8000
+  selector:
+    app: coral-app
