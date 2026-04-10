@@ -4,7 +4,7 @@ import time
 import os  # Adicionado para ler as variáveis do manifesto
 
 # 1. Configuração da Página
-st.set_page_config(page_title="Coral AI - Powered by Nutanix NAI v2", page_icon="🤖")
+st.set_page_config(page_title="NTNX BR AI - Powered by Nutanix NAI and NKP", page_icon="🤖")
 
 # Inicializa contadores globais na sessão
 if "total_tokens_used" not in st.session_state:
@@ -52,7 +52,7 @@ with st.sidebar:
     last_tps = st.empty()
 
 # 4. Cabeçalho Principal
-st.title("🤖 Coral AI Assistant")
+st.title("🤖 NTNX BR AI Assistant")
 st.caption("🚀 Rodando no NKP via **Nutanix Enterprise AI (NAI)**")
 
 API_URL = "http://app-service/api/v1/chat/ask"
