@@ -15,9 +15,10 @@ spec:
     spec: 
       containers:
       - name: frontend
-        image: docker.io/thicoral/coral-app:latest
+        image: docker.io/thicoral/coral-app:frontend # <--- USE ESTA TAG
         imagePullPolicy: Always
-        # Removemos o comando "command:" daqui para usar o do Dockerfile
+        # Forçamos o python a achar o streamlit
+        command: ["python", "-m", "streamlit", "run", "frontend/frontend.py", "--server.port=8501", "--server.address=0.0.0.0"]
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
