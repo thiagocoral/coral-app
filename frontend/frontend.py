@@ -1,12 +1,15 @@
 import streamlit as st
 import requests
 import time
+import os  # Adicionado para ler as variáveis do manifesto
 
 # 1. Configuração da Página
 st.set_page_config(page_title="Coral AI - Powered by Nutanix NAI", page_icon="🤖")
-# Inicializa contadores globais na sessão se não existirem
+
+# Inicializa contadores globais na sessão
 if "total_tokens_used" not in st.session_state:
     st.session_state.total_tokens_used = 0
+
 # 2. Estilização Customizada
 st.markdown("""
     <style>
@@ -15,16 +18,15 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. Barra Lateral (Sidebar) - Configurações Dinâmicas
+# 3. Barra Lateral (Sidebar) - Configurações Dinâmicas e Métricas
 with st.sidebar:
     st.title("⚙️ Configurações de IA")
     st.info("Valores carregados automaticamente do Kubernetes.")
     
-    # Buscamos do manifesto usando os.getenv
-    # O segundo parâmetro é o "fallback" caso a variável não exista no pod
+    # Buscamos do manifesto usando os.getenv para preencher os campos
     user_endpoint = st.text_input(
         "Nutanix Endpoint URL", 
-        value=os.getenv("NAI_ENDPOINT", "")
+        value=os.getenv("NAI_ENDPOINT", "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions")
     )
     user_model = st.text_input(
         "Model Name", 
@@ -43,21 +45,19 @@ with st.sidebar:
 
     st.divider()
     st.subheader("📊 Métricas de Consumo")
-    col1, col2 = st.columns(2)
-    col1.metric("Tokens Total", st.session_state.total_tokens_used)
+    st.metric("Acumulado de Tokens", f"{st.session_state.total_tokens_used:,}")
     
-    # Placeholder para métricas da última resposta
+    # Placeholders para métricas em tempo real da última resposta
     last_lat = st.empty()
-    last_tokens = st.empty()
+    last_tps = st.empty()
 
 # 4. Cabeçalho Principal
 st.title("🤖 Coral AI Assistant")
 st.caption("🚀 Rodando no NKP via **Nutanix Enterprise AI (NAI)**")
 
-# URL fixa do seu serviço Backend no Kubernetes
 API_URL = "http://app-service/api/v1/chat/ask"
 
-# 5. Inicialização e Exibição do Histórico
+# 5. Histórico de Chat
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -65,66 +65,54 @@ for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# 6. Lógica de Interação (Chat Input)
+# 6. Lógica de Interação
 if prompt := st.chat_input("Pergunte algo..."):
-    # Adiciona e mostra a mensagem do usuário
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Processamento da Resposta do Assistente
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         message_placeholder.markdown("*Pensando...*")
-        full_response = "Não foi possível obter resposta." 
+        full_response = ""
         
         try:
-            # Montamos o payload com o histórico E os dados da Sidebar
             payload = {
                 "user_input": prompt,
-                "history": st.session_state.messages[:-1], # Histórico acumulado
-                "endpoint_url": user_endpoint,             # Vem da Sidebar
-                "api_key": user_api_key,                   # Vem da Sidebar
-                "model_name": user_model                   # Vem da Sidebar
+                "history": st.session_state.messages[:-1],
+                "endpoint_url": user_endpoint,
+                "api_key": user_api_key,
+                "model_name": user_model
             }
             
-            # Chamada ao seu Backend FastAPI
-            start_time = time.time()
-            response = requests.post(API_URL, json=payload, timeout=90)
-            end_time = time.time()
+            response = requests.post(API_URL, json=payload, timeout=95)
             
             if response.status_code == 200:
                 res_json = response.json()
-                full_response = res_json.get("response", "Erro no formato da resposta.")
-                
+                full_response = res_json.get("response", "")
                 metrics = res_json.get("metrics", {})
 
-                # Atualiza métricas globais
+                # Atualiza métricas globais e locais
                 st.session_state.total_tokens_used += metrics.get("total_tokens", 0)
                 
-                # Exibe métricas da última interação
-                last_lat.caption(f"⏱️ Latência: {end_time - start_time:.2f}s")
-                last_tokens.caption(f"🪙 Tokens nesta volta: {metrics.get('total_tokens')}")
+                # Exibe métricas de performance na Sidebar
+                last_lat.caption(f"⏱️ Latência: {metrics.get('duration')}s")
+                last_tps.caption(f"⚡ Velocidade: {metrics.get('tps')} tokens/sec")
+
                 if res_json.get("status") == "error":
                     st.warning(full_response)
                 else:
-                    # Efeito de digitação para a resposta
+                    # Efeito de digitação
                     displayed_text = ""
                     for char in full_response:
                         displayed_text += char
                         message_placeholder.markdown(displayed_text + "▌")
-                        time.sleep(0.01)
+                        time.sleep(0.005)
                     message_placeholder.markdown(full_response)
-                    
-                    # Exibe a latência na Sidebar para dar um toque profissional
-                    st.sidebar.metric("Latência NAI", f"{end_time - start_time:.2f}s")
             else:
-                full_response = f"Erro na API ({response.status_code}): {response.text}"
-                st.error(full_response)
-                
+                st.error(f"Erro na API: {response.text}")
         except Exception as e:
-            full_response = f"Falha de conexão: {e}"
-            st.error(full_response)
+            st.error(f"Falha de conexão: {e}")
 
-        # Adiciona a resposta final ao histórico de mensagens
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+        if full_response:
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
