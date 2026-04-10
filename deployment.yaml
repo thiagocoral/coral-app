@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
       - name: app-container
-        image: docker.io/thicoral/coral-app:v1
-        imagePullPolicy: Always # <--- ADICIONE ESTA LINHA AQUI
+        image: docker.io/thicoral/coral-app:v1  # Tag correta do GitHub Actions
+        imagePullPolicy: Always
         ports:
         - containerPort: 8000
         env:
@@ -26,19 +26,12 @@ spec:
           value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
         - name: MODEL_NAME
           value: "coral-endpoint"
-        resources:
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: app-service
+  namespace: coral-project-krq9s
 spec:
   type: LoadBalancer
   ports:

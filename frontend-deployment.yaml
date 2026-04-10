@@ -15,11 +15,8 @@ spec:
     spec: 
       containers:
       - name: frontend
-        # Tente usar :latest se :v1 estiver falhando
-        image: docker.io/thicoral/coral-app:latest 
+        image: docker.io/thicoral/coral-app:frontend # Tag correta do GitHub Actions
         imagePullPolicy: Always
-        # Forçamos o comando para garantir que rode o Frontend na porta 8000
-        command: ["streamlit", "run", "frontend.py", "--server.port", "8000", "--server.address", "0.0.0.0"]
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
@@ -28,7 +25,7 @@ spec:
         - name: MODEL_NAME
           value: "coral-endpoint"
         ports:
-        - containerPort: 8000
+        - containerPort: 8501 # Streamlit padrão
 ---
 apiVersion: v1
 kind: Service
@@ -39,6 +36,6 @@ spec:
   type: LoadBalancer
   ports:
   - port: 80         
-    targetPort: 8000 
+    targetPort: 8501 
   selector:
     app: coral-frontend
