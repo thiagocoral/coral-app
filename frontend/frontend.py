@@ -4,7 +4,7 @@ import time
 import os  # Adicionado para ler as variáveis do manifesto
 
 # 1. Configuração da Página
-st.set_page_config(page_title="Coral AI - Powered by Nutanix NAI", page_icon="🤖")
+st.set_page_config(page_title="Coral AI - Powered by Nutanix NAI v2", page_icon="🤖")
 
 # Inicializa contadores globais na sessão
 if "total_tokens_used" not in st.session_state:
