@@ -45,17 +45,24 @@ async def ask_chatbot(message: ChatMessage):
 
     async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.post(
-                final_endpoint, 
-                json=payload, 
-                headers=headers, 
-                timeout=120.0
-            )
+            response = await client.post(final_endpoint, json=payload, headers=headers, timeout=120.0)
             
             if response.status_code == 200:
                 data = response.json()
                 bot_response = data['choices'][0]['message']['content']
-                return {"status": "success", "response": bot_response}
+                
+                # Capturando métricas de tokens (padrão OpenAI/NAI)
+                usage = data.get("usage", {})
+                
+                return {
+                    "status": "success", 
+                    "response": bot_response,
+                    "metrics": {
+                        "prompt_tokens": usage.get("prompt_tokens", 0),
+                        "completion_tokens": usage.get("completion_tokens", 0),
+                        "total_tokens": usage.get("total_tokens", 0)
+                    }
+                }
             else:
                 return {"status": "error", "response": f"Erro NAI ({response.status_code}): {response.text}"}
         except Exception as e:

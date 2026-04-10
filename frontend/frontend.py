@@ -4,7 +4,9 @@ import time
 
 # 1. Configuração da Página
 st.set_page_config(page_title="Coral AI - Powered by Nutanix NAI", page_icon="🤖")
-
+# Inicializa contadores globais na sessão se não existirem
+if "total_tokens_used" not in st.session_state:
+    st.session_state.total_tokens_used = 0
 # 2. Estilização Customizada
 st.markdown("""
     <style>
@@ -38,6 +40,15 @@ with st.sidebar:
     if st.button("🗑️ Limpar Histórico"):
         st.session_state.messages = []
         st.rerun()
+
+    st.divider()
+    st.subheader("📊 Métricas de Consumo")
+    col1, col2 = st.columns(2)
+    col1.metric("Tokens Total", st.session_state.total_tokens_used)
+    
+    # Placeholder para métricas da última resposta
+    last_lat = st.empty()
+    last_tokens = st.empty()
 
 # 4. Cabeçalho Principal
 st.title("🤖 Coral AI Assistant")
@@ -86,6 +97,14 @@ if prompt := st.chat_input("Pergunte algo..."):
                 res_json = response.json()
                 full_response = res_json.get("response", "Erro no formato da resposta.")
                 
+                metrics = res_json.get("metrics", {})
+
+                # Atualiza métricas globais
+                st.session_state.total_tokens_used += metrics.get("total_tokens", 0)
+                
+                # Exibe métricas da última interação
+                last_lat.caption(f"⏱️ Latência: {end_time - start_time:.2f}s")
+                last_tokens.caption(f"🪙 Tokens nesta volta: {metrics.get('total_tokens')}")
                 if res_json.get("status") == "error":
                     st.warning(full_response)
                 else:
