@@ -15,8 +15,11 @@ spec:
     spec: 
       containers:
       - name: frontend
-        image: docker.io/thicoral/coral-app:v1
+        # Tente usar :latest se :v1 estiver falhando
+        image: docker.io/thicoral/coral-app:latest 
         imagePullPolicy: Always
+        # Forçamos o comando para garantir que rode o Frontend na porta 8000
+        command: ["streamlit", "run", "frontend.py", "--server.port", "8000", "--server.address", "0.0.0.0"]
         env:
         - name: NAI_ENDPOINT
           value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
@@ -24,7 +27,6 @@ spec:
           value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
         - name: MODEL_NAME
           value: "coral-endpoint"
-        # Garante que o Kubernetes saiba que a porta interna é 8000
         ports:
         - containerPort: 8000
 ---
@@ -36,7 +38,7 @@ metadata:
 spec:
   type: LoadBalancer
   ports:
-  - port: 80         # Porta externa (IP:80)
-    targetPort: 8000 # CORRIGIDO: Alinhado com o log "Uvicorn running on http://0.0.0.0:8000"
+  - port: 80         
+    targetPort: 8000 
   selector:
     app: coral-frontend
