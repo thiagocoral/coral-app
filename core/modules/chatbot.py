@@ -86,19 +86,25 @@ async def ask_chatbot(message: ChatMessage):
                     data = response.json()
                     choice = data['choices'][0]['message']
 
-                    # 2. Lógica de Agente: O modelo decidiu chamar uma ferramenta?
                     if choice.get("tool_calls"):
-                        for tool_call in choice["tool_calls"]:
-                            tool_name = tool_call["function"]["name"]
-                            tool_args = json.loads(tool_call["function"]["arguments"])
-                            
-                            # Executa a ferramenta no MCP Server
-                            tool_result = await session.call_tool(tool_name, arguments=tool_args)
-                            
-                            # Enriquecemos o bot_response com o retorno da ferramenta
-                            # Em um fluxo completo, enviaríamos de volta ao NAI, 
-                            # mas aqui retornamos direto para o usuário ver a ação do agente.
-                            bot_response = f"[Agente Coral] Executando {tool_name}...\nResultado: {tool_result.content[0].text}"
+                        # Pegamos a primeira chamada de ferramenta (o NAI pode enviar várias)
+                        tool_call = choice["tool_calls"][0]
+                        tool_name = tool_call["function"]["name"]
+                        # Garante que os argumentos sejam lidos corretamente
+                        tool_args = json.loads(tool_call["function"]["arguments"]) if isinstance(tool_call["function"]["arguments"], str) else tool_call["function"]["arguments"]
+                        
+                        # EXECUÇÃO REAL NO SERVIDOR MCP
+                        tool_result = await session.call_tool(tool_name, arguments=tool_args)
+                        
+                        # Extraímos apenas o texto do resultado (MCP retorna uma lista de conteúdos)
+                        resultado_texto = ""
+                        if hasattr(tool_result, 'content'):
+                            resultado_texto = tool_result.content[0].text
+                        else:
+                            resultado_texto = str(tool_result)
+
+                        # RESPOSTA AMIGÁVEL AO USUÁRIO
+                        bot_response = f"🛠️ **Ação do Agente:** {tool_name}\n\n✅ **Resultado:** {resultado_texto}"
                     else:
                         bot_response = choice.get('content', "Sem resposta do modelo.")
 
