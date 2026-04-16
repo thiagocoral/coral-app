@@ -70,7 +70,11 @@ async def ask_chatbot(message: ChatMessage):
 
             payload = {
                 "model": final_model,
-                "messages": current_messages,
+                "messages": [
+                    {"role": "system", "content": "Você é o assistente Coral. Se o usuário apenas te cumprimentar, responda educadamente sem usar ferramentas. Use ferramentas apenas se houver uma necessidade técnica."},
+                    *message.history, 
+                    {"role": "user", "content": message.user_input}
+                ],
                 "temperature": 0.7,
                 "tools": nai_tools,      # Envia as ferramentas para a IA
                 "tool_choice": "auto"    # IA decide se precisa usar ferramenta
