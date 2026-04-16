@@ -1,5 +1,4 @@
-FROM python:3.9-slim
-
+FROM python:3.11-slim
 # Impede que o Python gere arquivos .pyc e garante que os logs/stdio saiam em tempo real
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
