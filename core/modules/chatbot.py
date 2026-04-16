@@ -82,7 +82,7 @@ async def ask_chatbot(message: ChatMessage):
                     *message.history, 
                     {"role": "user", "content": message.user_input}
                 ],
-                "temperature": 0.2,
+                "temperature": 0.1,
                 "tools": nai_tools,      # Envia as ferramentas para a IA
                 "tool_choice": "auto"    # IA decide se precisa usar ferramenta
             }

@@ -42,9 +42,14 @@ def testar_conectividade_nai() -> str:
         return f"Conectividade com NAI OK: {host} está respondendo."
     except Exception:
         return f"Alerta: Falha de conectividade direta com o host {host}."
+
 @mcp.tool()
 def obter_horario_servidor() -> str:
-    """Retorna o horário atual do servidor Nutanix NKP."""
+    """
+    RETORNA O HORÁRIO ATUAL. 
+    USE ESTA FERRAMENTA APENAS SE o usuário perguntar explicitamente 'que horas são', 
+    'qual o horário' ou 'hora atual'. NÃO use para saudações ou reclamações.
+    """
     from datetime import datetime
     return f"O horário atual do sistema é: {datetime.now().strftime('%H:%M:%S')}"
 
