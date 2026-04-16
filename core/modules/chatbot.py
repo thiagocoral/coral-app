@@ -68,25 +68,26 @@ async def ask_chatbot(message: ChatMessage):
             # Monta o histórico com a nova mensagem
             current_messages = message.history + [{"role": "user", "content": message.user_input}]
 
+            # No seu chatbot.py, antes de montar o payload:
+
+            user_query = message.user_input.lower()
+            # Lista de palavras-chave que REALMENTE exigem ferramentas
+            tech_keywords = ["hora", "horário", "recursos", "memória", "cpu", "arquivos", "listar", "conectividade", "ping", "status"]
+
+            # Decisão dinâmica de Tool Choice
+            # Se não houver palavras técnicas, forçamos o modelo a NÃO usar ferramentas
+            final_tool_choice = "auto" if any(k in user_query for k in tech_keywords) else "none"
+
             payload = {
                 "model": final_model,
                 "messages": [
-                    {"role": "system", "content": (
-                        "Você é o assistente NTNX BR. "
-                        "DIRETRIZES DE RESPOSTA:\n"
-                        "1. SAUDAÇÕES: Se o usuário disser 'olá', 'tudo bem' ou similares, responda APENAS com texto amigável. "
-                        "É PROIBIDO usar ferramentas para responder saudações.\n"
-                        "2. USO DE FERRAMENTAS: Ative uma ferramenta APENAS se houver uma pergunta técnica direta sobre: "
-                        "horário, recursos do sistema, arquivos ou conectividade.\n"
-                        "3. PENSAMENTO CRÍTICO: Antes de usar uma ferramenta, pergunte-se: 'Eu preciso de dados externos para responder isso?'. "
-                        "Se a resposta for não, use apenas seus conhecimentos gerais."
-                    )},
+                    {"role": "system", "content": "Você é o assistente NTNX BR. Responda saudações apenas com texto."},
                     *message.history, 
                     {"role": "user", "content": message.user_input}
                 ],
                 "temperature": 0.1,
-                "tools": nai_tools,      # Envia as ferramentas para a IA
-                "tool_choice": "auto"    # IA decide se precisa usar ferramenta
+                "tools": nai_tools,
+                "tool_choice": final_tool_choice # <--- Mudança aqui
             }
 
             async with httpx.AsyncClient(verify=False) as client:
