@@ -8,13 +8,13 @@ mcp = FastMCP("Coral Enterprise Tools")
 @mcp.tool()
 def listar_arquivos_projeto() -> str:
     """
-    Lista arquivos no diretório /app. 
+    Lista arquivos no diretório /. 
     USE APENAS se o usuário solicitar explicitamente ver a estrutura de pastas, verificar se um arquivo existe 
     ou listar o conteúdo do projeto. NÃO use para conversas gerais ou saudações.
     """
     try:
-        arquivos = os.listdir('/app')
-        return f"Arquivos encontrados em /app: {', '.join(arquivos)}"
+        arquivos = os.listdir('/')
+        return f"Arquivos encontrados em /: {', '.join(arquivos)}"
     except Exception as e:
         return f"Erro ao listar arquivos: {str(e)}"
 
