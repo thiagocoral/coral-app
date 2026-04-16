@@ -21,7 +21,7 @@ DEFAULT_MODEL = os.getenv("MODEL_NAME", "coral-endpoint")
 # Como este arquivo está em core/modules/, subimos dois níveis para achar o mcp_server.py
 MCP_SERVER_PARAMS = StdioServerParameters(
     command="python3",
-    args=["../../mcp_server.py"],
+    args=["/app/mcp_server.py"],
 )
 
 class ChatMessage(BaseModel):
