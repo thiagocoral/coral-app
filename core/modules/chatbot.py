@@ -71,11 +71,18 @@ async def ask_chatbot(message: ChatMessage):
             payload = {
                 "model": final_model,
                 "messages": [
-                    {"role": "system", "content": "Você é o assistente Coral. Se o usuário apenas te cumprimentar, responda educadamente sem usar ferramentas. Use ferramentas apenas se houver uma necessidade técnica."},
+                    {"role": "system", "content": (
+                        "Você é o assistente Coral. "
+                        "REGRAS DE OURO: "
+                        "1. Para saudações (olá, bom dia), conversas genéricas ou dúvidas teóricas, use APENAS texto. "
+                        "2. Use ferramentas APENAS se o usuário pedir explicitamente informações em tempo real sobre o sistema, "
+                        "arquivos, memória ou conectividade que você não pode saber sem consultar o ambiente. "
+                        "3. Se o tema da pergunta não tiver relação clara com as funções disponíveis, NÃO chame ferramentas."
+                    )},
                     *message.history, 
                     {"role": "user", "content": message.user_input}
                 ],
-                "temperature": 0.7,
+                "temperature": 0.2,
                 "tools": nai_tools,      # Envia as ferramentas para a IA
                 "tool_choice": "auto"    # IA decide se precisa usar ferramenta
             }
