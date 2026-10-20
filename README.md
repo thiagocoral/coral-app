@@ -19,10 +19,30 @@ O pipeline em `.github/workflows/docker-build.yml` publica `thicoral/coral-app:v
 - **Parâmetros**: system prompt, temperatura e máximo de tokens, ajustáveis na barra lateral.
 - **Lista de modelos** do endpoint (`/v1/models`) e **teste de conexão** (rede, TLS e API Key).
 - **Modo comparação**: a mesma pergunta para dois endpoints ou modelos lado a lado, com resumo de quem foi mais rápido.
+  O envio pode ser simultâneo ou sequencial (B só começa quando A termina, para um não disputar recursos com o outro).
+- **Modo benchmark**: repete a mesma pergunta várias vezes e mede o endpoint com estatística (veja abaixo).
 - **Documento anexado** (PDF, TXT, MD, CSV, JSON, YAML, LOG): o texto vai como contexto em cada pergunta. PDFs escaneados não são suportados.
 - **Exportar a conversa** em Markdown.
 
 Ferramentas (MCP) não ficam mais no app: use as conexões MCP configuradas no próprio NAI.
+
+## Benchmark
+
+O modo **📈 Benchmark** mede um endpoint (ou compara dois) repetindo o mesmo prompt:
+
+- Configurável: número de requisições, concorrência, aquecimento, máximo de tokens, temperatura,
+  prefixo anti-cache e tamanho fixo de saída (`ignore_eos`, do vLLM).
+- Métricas por requisição: tempo até o 1º token (TTFT), tempo total, tempo por token de saída (TPOT),
+  velocidade de geração (tok/s), intervalo entre chunks e tokens de entrada/saída.
+- Estatísticas: média, desvio padrão, coeficiente de variação, mínimo, p50, p90, p99 e máximo, além do
+  throughput agregado (tokens/s somando todas as requisições).
+- Exporta relatório em Markdown e os dados brutos em CSV.
+
+Para a medição ser precisa, o benchmark roda no backend, dentro do cluster, e não no navegador. O relógio
+é monotônico, o TTFT começa a contar quando a requisição termina de ser enviada, as conexões são
+reaproveitadas, o aquecimento é descartado e os tokens vêm do campo `usage` do NAI. Validado contra um
+servidor com tempos conhecidos: o tempo por token bate com a referência (erro abaixo de 0,1%) e o TTFT
+fica a cerca de 1 ms do medido por um cliente de socket cru.
 
 ## Variáveis de ambiente
 
@@ -64,6 +84,7 @@ Para não deixar a API Key no manifest, ela pode vir de um Secret:
 | `POST /api/v1/chat/ask` | Resposta completa, sem streaming |
 | `POST /api/v1/chat/models` | Modelos do endpoint |
 | `POST /api/v1/chat/connectivity` | Teste de rede, TLS e autenticação |
+| `POST /api/v1/chat/benchmark` | Benchmark do endpoint (NDJSON: `start`, `warmup`, `result`, `summary`, `error`, `done`) |
 | `GET /api/v1/chat/defaults` | Padrões configurados (sem a API Key) |
 
 ## Rodar localmente

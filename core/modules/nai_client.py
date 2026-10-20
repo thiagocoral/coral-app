@@ -66,11 +66,12 @@ def ssl_verify_setting():
     return os.getenv("NAI_VERIFY_SSL", "false").strip().lower() in ("1", "true", "yes")
 
 
-def make_client(timeout: Optional[httpx.Timeout] = None) -> httpx.AsyncClient:
+def make_client(timeout: Optional[httpx.Timeout] = None, limits: Optional[httpx.Limits] = None) -> httpx.AsyncClient:
     """Ponto único de criação do cliente HTTP (os testes substituem esta função)."""
     if timeout is None:
         timeout = httpx.Timeout(REQUEST_TIMEOUT, connect=CONNECT_TIMEOUT)
-    return httpx.AsyncClient(verify=ssl_verify_setting(), timeout=timeout)
+    kwargs = {"limits": limits} if limits is not None else {}
+    return httpx.AsyncClient(verify=ssl_verify_setting(), timeout=timeout, **kwargs)
 
 
 # ---------------------------------------------------------------------------
