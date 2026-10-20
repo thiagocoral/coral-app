@@ -8,17 +8,10 @@ ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-# Instala dependências do sistema caso o MCP precise de pacotes extras (opcional, mas recomendado)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
 COPY requirements.txt .
-# Substitua a linha do pip por esta:
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Copia todo o projeto (incluindo o mcp_server.py na raiz)
 COPY . .
 
 EXPOSE 8000
