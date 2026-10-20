@@ -23,7 +23,7 @@ spec:
         - name: NAI_ENDPOINT
           value: "https://10.42.163.114/enterpriseai/gateway/v1/chat/completions"
         - name: NAI_API_KEY
-          value: "c15ffd46-11e7-4df1-8b5f-c52170a8f03d"
+          value: ""
         - name: MODEL_NAME
           value: "unified-endpoint"
 ---
