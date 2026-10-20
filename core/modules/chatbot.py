@@ -5,6 +5,7 @@
 - POST /api/v1/chat/models        -> lista os modelos do endpoint
 - POST /api/v1/chat/connectivity  -> testa rede, TLS e autenticação
 - POST /api/v1/chat/benchmark     -> benchmark do endpoint (NDJSON com progresso)
+- POST /api/v1/chat/metrics-check -> testa o /metrics do servidor de inferência (KV cache etc.)
 - GET  /api/v1/chat/profiles      -> endpoints salvos no servidor (sem as API Keys)
 - GET  /api/v1/chat/defaults      -> valores padrão configurados no container
 """
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 
 from core.modules import benchmark as bench
 from core.modules import nai_client as nai
+from core.modules import server_metrics
 
 router = APIRouter()
 
@@ -55,6 +57,13 @@ class BenchmarkRequest(BaseModel):
     avoid_prompt_cache: bool = True
     ignore_eos: bool = False
     profile: Optional[str] = None
+    metrics_url: Optional[str] = None
+    prompt_tokens_target: Optional[int] = Field(default=None, ge=16, le=1_000_000)
+
+
+class MetricsCheck(BaseModel):
+    metrics_url: str = Field(min_length=1)
+    model_name: Optional[str] = None
 
 
 def _resolve(endpoint_url: Optional[str], api_key: Optional[str], model_name: Optional[str] = None,
@@ -131,6 +140,8 @@ async def run_benchmark(req: BenchmarkRequest):
             requests=req.requests, concurrency=req.concurrency, warmup=req.warmup,
             max_tokens=req.max_tokens, temperature=req.temperature,
             avoid_prompt_cache=req.avoid_prompt_cache, ignore_eos=req.ignore_eos,
+            metrics_url=(req.metrics_url or "").strip() or None,
+            prompt_tokens_target=req.prompt_tokens_target,
         ):
             yield json.dumps(event, ensure_ascii=False) + "\n"
 
@@ -139,6 +150,12 @@ async def run_benchmark(req: BenchmarkRequest):
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.post("/metrics-check")
+async def metrics_check(req: MetricsCheck):
+    """Lê uma vez o /metrics do servidor de inferência e diz quais métricas existem."""
+    return await server_metrics.check(req.metrics_url.strip(), (req.model_name or "").strip() or None)
 
 
 @router.get("/profiles")

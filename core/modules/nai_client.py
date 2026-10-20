@@ -64,6 +64,7 @@ CONNECT_TIMEOUT = _env_float("NAI_CONNECT_TIMEOUT", 10.0)
 #   NAI_PROFILE_1_URL=https://nai.local/enterpriseai/gateway/v1/chat/completions
 #   NAI_PROFILE_1_MODEL=llama-31-8b
 #   NAI_PROFILE_1_API_KEY=...        (de preferência vindo de um Secret)
+#   NAI_PROFILE_1_METRICS_URL=http://<pod-do-vllm>:8000/metrics   (opcional, KV cache no benchmark)
 # O endpoint padrão (NAI_ENDPOINT / MODEL_NAME / NAI_API_KEY) vira o perfil "default".
 # As API Keys ficam só no servidor: a rota /profiles nunca as devolve.
 
@@ -92,6 +93,7 @@ def load_profiles(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, str
             "endpoint_url": default_url,
             "model_name": (env.get("MODEL_NAME") or "").strip(),
             "api_key": (env.get("NAI_API_KEY") or "").strip(),
+            "metrics_url": (env.get("NAI_METRICS_URL") or "").strip(),
         })
     numbers = sorted({int(m.group(1)) for k in env for m in [_PROFILE_URL.match(k)] if m})
     for n in numbers:
@@ -104,6 +106,7 @@ def load_profiles(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, str
             "endpoint_url": url,
             "model_name": (env.get(f"NAI_PROFILE_{n}_MODEL") or "").strip(),
             "api_key": (env.get(f"NAI_PROFILE_{n}_API_KEY") or "").strip(),
+            "metrics_url": (env.get(f"NAI_PROFILE_{n}_METRICS_URL") or "").strip(),
         })
     return profiles
 
@@ -114,7 +117,7 @@ PROFILES = load_profiles()
 def public_profiles() -> List[Dict[str, Any]]:
     return [
         {"id": p["id"], "name": p["name"], "endpoint_url": p["endpoint_url"], "model_name": p["model_name"],
-         "has_api_key": bool(p["api_key"])}
+         "metrics_url": p.get("metrics_url", ""), "has_api_key": bool(p["api_key"])}
         for p in PROFILES
     ]
 
