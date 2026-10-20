@@ -14,7 +14,7 @@ ENDPOINT = "http://nai.test/enterpriseai/gateway/v1/chat/completions"
 
 @pytest.fixture(autouse=True)
 def fake_backend(monkeypatch):
-    def make_client(timeout=None):
+    def make_client(timeout=None, limits=None):
         return httpx.AsyncClient(transport=httpx.ASGITransport(app=fake_nai.app), base_url="http://nai.test")
 
     monkeypatch.setattr(nai, "make_client", make_client)
@@ -109,7 +109,7 @@ def test_models_and_connectivity():
 
 
 def test_unreachable_host(monkeypatch):
-    def make_client(timeout=None):
+    def make_client(timeout=None, limits=None):
         def handler(request):
             raise httpx.ConnectError("connection refused", request=request)
         return httpx.AsyncClient(transport=httpx.MockTransport(handler))

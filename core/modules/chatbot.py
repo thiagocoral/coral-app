@@ -4,6 +4,7 @@
 - POST /api/v1/chat/ask           -> resposta completa (mantida por compatibilidade)
 - POST /api/v1/chat/models        -> lista os modelos do endpoint
 - POST /api/v1/chat/connectivity  -> testa rede, TLS e autenticação
+- POST /api/v1/chat/benchmark     -> benchmark do endpoint (NDJSON com progresso)
 - GET  /api/v1/chat/defaults      -> valores padrão configurados no container
 """
 
@@ -14,6 +15,7 @@ from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from core.modules import benchmark as bench
 from core.modules import nai_client as nai
 
 router = APIRouter()
@@ -35,6 +37,20 @@ class ChatMessage(BaseModel):
 class EndpointInfo(BaseModel):
     endpoint_url: Optional[str] = None
     api_key: Optional[str] = None
+
+
+class BenchmarkRequest(BaseModel):
+    endpoint_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_name: Optional[str] = None
+    prompt: str = Field(default=bench.DEFAULT_PROMPT, min_length=1)
+    requests: int = Field(default=10, ge=1, le=500)
+    concurrency: int = Field(default=1, ge=1, le=64)
+    warmup: int = Field(default=1, ge=0, le=10)
+    max_tokens: int = Field(default=256, ge=1, le=32768)
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    avoid_prompt_cache: bool = True
+    ignore_eos: bool = False
 
 
 def _resolve(endpoint_url: Optional[str], api_key: Optional[str], model_name: Optional[str] = None):
@@ -100,6 +116,26 @@ async def connectivity(info: EndpointInfo):
     return await nai.check_connectivity(endpoint, key)
 
 
+@router.post("/benchmark")
+async def run_benchmark(req: BenchmarkRequest):
+    endpoint, key, model = _resolve(req.endpoint_url, req.api_key, req.model_name)
+
+    async def events():
+        async for event in bench.run_benchmark(
+            endpoint=endpoint, api_key=key, model=model, prompt=req.prompt,
+            requests=req.requests, concurrency=req.concurrency, warmup=req.warmup,
+            max_tokens=req.max_tokens, temperature=req.temperature,
+            avoid_prompt_cache=req.avoid_prompt_cache, ignore_eos=req.ignore_eos,
+        ):
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.get("/defaults")
 async def defaults():
     """Valores padrão do backend (a API Key nunca é exposta)."""
@@ -112,4 +148,5 @@ async def defaults():
         "max_history_messages": nai.MAX_HISTORY_MESSAGES,
         "doc_max_chars": nai.DOC_MAX_CHARS,
         "has_api_key": bool(nai.DEFAULT_KEY),
+        "benchmark_prompt": bench.DEFAULT_PROMPT,
     }

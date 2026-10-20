@@ -8,6 +8,9 @@ O comportamento muda conforme o nome do modelo:
 - no-usage      : rejeita stream_options com HTTP 400
 - json-only     : ignora stream e devolve JSON
 - slow          : demora 1s antes do primeiro token
+- timed-T-I-N   : primeiro token após T ms, um token a cada I ms, N tokens
+                  (respeita max_tokens; com ignore_eos gera sempre max_tokens).
+                  Prompt já visto responde com TTFT 10x menor (simula cache de prefixo).
 Qualquer modelo exige 'Authorization: Bearer good-key'.
 """
 import asyncio
@@ -18,8 +21,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 app = FastAPI()
-MODELS = ["plain", "think", "r1", "reasoning", "no-usage", "json-only", "slow"]
+MODELS = ["plain", "think", "r1", "reasoning", "no-usage", "json-only", "slow", "timed-200-20-50"]
 LAST = {}
+SEEN_PROMPTS = set()
+STATS = {"in_flight": 0, "max_in_flight": 0, "requests": 0}
+TIMINGS = []  # horários reais de envio no servidor (referência para validar a medição)
 
 
 def check_auth(request: Request):
@@ -38,14 +44,64 @@ async def last():
     return LAST
 
 
+@app.get("/stats")
+async def stats():
+    return STATS
+
+
+@app.post("/reset")
+async def reset():
+    SEEN_PROMPTS.clear()
+    TIMINGS.clear()
+    STATS.update({"in_flight": 0, "max_in_flight": 0, "requests": 0})
+    return STATS
+
+
+@app.get("/timings")
+async def timings():
+    return TIMINGS
+
+
+async def timed_stream(body, ttft_ms, itl_ms, n_tokens, t_received):
+    prompt = body["messages"][-1]["content"]
+    cached = prompt in SEEN_PROMPTS
+    SEEN_PROMPTS.add(prompt)
+    n = body.get("max_tokens") if body.get("ignore_eos") else min(n_tokens, body.get("max_tokens") or n_tokens)
+    STATS["requests"] += 1
+    STATS["in_flight"] += 1
+    STATS["max_in_flight"] = max(STATS["max_in_flight"], STATS["in_flight"])
+    sent = []
+    try:
+        await asyncio.sleep((ttft_ms / 10 if cached else ttft_ms) / 1000)
+        for i in range(n):
+            if i:
+                await asyncio.sleep(itl_ms / 1000)
+            sent.append(time.perf_counter())
+            yield "data: " + json.dumps({"choices": [{"delta": {"content": f"t{i} "}}]}) + "\n\n"
+        TIMINGS.append({
+            "ttft_ms": (sent[0] - t_received) * 1000,
+            "tpot_ms": (sent[-1] - sent[0]) * 1000 / (len(sent) - 1) if len(sent) > 1 else None,
+            "tokens": len(sent),
+        })
+        if body.get("stream_options", {}).get("include_usage"):
+            yield "data: " + json.dumps({"choices": [], "usage": {"prompt_tokens": 30, "completion_tokens": n, "total_tokens": 30 + n}}) + "\n\n"
+        yield "data: [DONE]\n\n"
+    finally:
+        STATS["in_flight"] -= 1
+
+
 @app.post("/enterpriseai/gateway/v1/chat/completions")
 async def chat(request: Request):
+    t_received = time.perf_counter()
     if not check_auth(request):
         return JSONResponse({"error": {"message": "invalid api key"}}, status_code=401)
     body = await request.json()
     LAST.clear()
     LAST.update(body)
     model = body["model"]
+    if model.startswith("timed-"):
+        _, t, i, n = model.split("-")
+        return StreamingResponse(timed_stream(body, float(t), float(i), int(n), t_received), media_type="text/event-stream")
     msgs = body["messages"]
     user = msgs[-1]["content"]
     n_hist = len([m for m in msgs if m["role"] != "system"]) - 1
