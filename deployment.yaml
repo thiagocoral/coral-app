@@ -21,11 +21,11 @@ spec:
         - containerPort: 8000
         env:
         - name: NAI_ENDPOINT
-          value: "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions"
+          value: "https://10.42.163.114/enterpriseai/gateway/v1/chat/completions"
         - name: NAI_API_KEY
-          value: "bac373c4-2607-4c8d-9521-62dd3ed781e9"
+          value: "c15ffd46-11e7-4df1-8b5f-c52170a8f03d"
         - name: MODEL_NAME
-          value: "coral-endpoint"
+          value: "unified-endpoint"
 ---
 apiVersion: v1
 kind: Service
