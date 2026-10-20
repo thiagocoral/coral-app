@@ -5,6 +5,7 @@
 - POST /api/v1/chat/models        -> lista os modelos do endpoint
 - POST /api/v1/chat/connectivity  -> testa rede, TLS e autenticação
 - POST /api/v1/chat/benchmark     -> benchmark do endpoint (NDJSON com progresso)
+- GET  /api/v1/chat/profiles      -> endpoints salvos no servidor (sem as API Keys)
 - GET  /api/v1/chat/defaults      -> valores padrão configurados no container
 """
 
@@ -32,11 +33,13 @@ class ChatMessage(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1, le=131072)
     document_text: Optional[str] = None
     document_name: Optional[str] = None
+    profile: Optional[str] = None
 
 
 class EndpointInfo(BaseModel):
     endpoint_url: Optional[str] = None
     api_key: Optional[str] = None
+    profile: Optional[str] = None
 
 
 class BenchmarkRequest(BaseModel):
@@ -51,17 +54,19 @@ class BenchmarkRequest(BaseModel):
     temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     avoid_prompt_cache: bool = True
     ignore_eos: bool = False
+    profile: Optional[str] = None
 
 
-def _resolve(endpoint_url: Optional[str], api_key: Optional[str], model_name: Optional[str] = None):
+def _resolve(endpoint_url: Optional[str], api_key: Optional[str], model_name: Optional[str] = None,
+             profile: Optional[str] = None):
     endpoint = (endpoint_url or "").strip() or nai.DEFAULT_ENDPOINT
-    key = (api_key or "").strip() or nai.DEFAULT_KEY
+    key = nai.resolve_api_key(endpoint, api_key, profile)
     model = (model_name or "").strip() or nai.DEFAULT_MODEL
     return endpoint, key, model
 
 
 def _payload(message: ChatMessage):
-    endpoint, key, model = _resolve(message.endpoint_url, message.api_key, message.model_name)
+    endpoint, key, model = _resolve(message.endpoint_url, message.api_key, message.model_name, message.profile)
     payload, truncated = nai.build_payload(
         user_input=message.user_input,
         history=message.history,
@@ -106,19 +111,19 @@ async def ask_chatbot(message: ChatMessage):
 
 @router.post("/models")
 async def list_models(info: EndpointInfo):
-    endpoint, key, _ = _resolve(info.endpoint_url, info.api_key)
+    endpoint, key, _ = _resolve(info.endpoint_url, info.api_key, profile=info.profile)
     return await nai.list_models(endpoint, key)
 
 
 @router.post("/connectivity")
 async def connectivity(info: EndpointInfo):
-    endpoint, key, _ = _resolve(info.endpoint_url, info.api_key)
+    endpoint, key, _ = _resolve(info.endpoint_url, info.api_key, profile=info.profile)
     return await nai.check_connectivity(endpoint, key)
 
 
 @router.post("/benchmark")
 async def run_benchmark(req: BenchmarkRequest):
-    endpoint, key, model = _resolve(req.endpoint_url, req.api_key, req.model_name)
+    endpoint, key, model = _resolve(req.endpoint_url, req.api_key, req.model_name, req.profile)
 
     async def events():
         async for event in bench.run_benchmark(
@@ -134,6 +139,12 @@ async def run_benchmark(req: BenchmarkRequest):
         media_type="application/x-ndjson",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/profiles")
+async def profiles():
+    """Endpoints salvos por variáveis de ambiente. As API Keys não saem do servidor."""
+    return {"profiles": nai.public_profiles()}
 
 
 @router.get("/defaults")

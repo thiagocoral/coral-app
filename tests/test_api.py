@@ -20,6 +20,7 @@ def fake_backend(monkeypatch):
     monkeypatch.setattr(nai, "make_client", make_client)
     monkeypatch.setattr(nai, "DEFAULT_ENDPOINT", ENDPOINT)
     monkeypatch.setattr(nai, "DEFAULT_KEY", "good-key")
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles({"NAI_ENDPOINT": ENDPOINT, "NAI_API_KEY": "good-key"}))
     monkeypatch.setattr(nai, "DEFAULT_MODEL", "plain")
 
 
@@ -119,3 +120,77 @@ def test_unreachable_host(monkeypatch):
     assert events[-1]["type"] == "error" and "conectar" in events[-1]["message"]
     conn = client.post("/api/v1/chat/connectivity", json={}).json()
     assert conn["reachable"] is False
+
+
+# --- endpoints salvos (perfis) --------------------------------------------
+
+PROFILE_ENV = {
+    "NAI_ENDPOINT": ENDPOINT,
+    "MODEL_NAME": "plain",
+    "NAI_API_KEY": "good-key",
+    "NAI_PROFILE_2_NAME": "GPU rápida",
+    "NAI_PROFILE_2_URL": "http://nai.test/enterpriseai/gateway/v1/chat/completions",
+    "NAI_PROFILE_2_MODEL": "think",
+    "NAI_PROFILE_2_API_KEY": "good-key",
+    "NAI_PROFILE_10_URL": "https://outro-nai.example/v1/chat/completions",
+    "NAI_PROFILE_10_API_KEY": "chave-do-outro",
+    "NAI_PROFILE_3_NAME": "sem url",
+}
+
+
+def test_load_profiles_parsing():
+    profiles = nai.load_profiles(PROFILE_ENV)
+    assert [p["id"] for p in profiles] == ["default", "2", "10"]
+    assert profiles[1]["name"] == "GPU rápida" and profiles[1]["model_name"] == "think"
+    assert profiles[2]["name"] == "Endpoint 10" and profiles[2]["model_name"] == ""
+    assert nai.load_profiles({}) == []
+
+
+def test_profiles_route_never_returns_keys(monkeypatch):
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles(PROFILE_ENV))
+    data = client.get("/api/v1/chat/profiles").json()["profiles"]
+    assert [p["id"] for p in data] == ["default", "2", "10"]
+    assert all(p["has_api_key"] for p in data)
+    text = json.dumps(data)
+    assert "good-key" not in text and "chave-do-outro" not in text
+
+
+def test_resolve_api_key_rules(monkeypatch):
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles(PROFILE_ENV))
+    other = "https://outro-nai.example/v1/chat/completions"
+    # chave digitada sempre vence
+    assert nai.resolve_api_key(ENDPOINT, "digitada") == "digitada"
+    # perfil escolhido, mesmo host
+    assert nai.resolve_api_key(other, "", "10") == "chave-do-outro"
+    # sem perfil: acha pelo host (mesmo NAI, outra rota)
+    assert nai.resolve_api_key("http://nai.test/outra/rota", "") == "good-key"
+    assert nai.resolve_api_key("HTTPS://OUTRO-NAI.EXAMPLE/v1/x", None) == "chave-do-outro"
+    # perfil escolhido mas URL trocada para outro host: a chave NÃO vai junto
+    assert nai.resolve_api_key("https://site-qualquer.example/v1/chat/completions", "", "10") == ""
+    assert nai.resolve_api_key("https://site-qualquer.example/v1/chat/completions", "") == ""
+    assert nai.resolve_api_key("não é url", "") == ""
+
+
+def test_chat_uses_profile_key_without_sending_it(monkeypatch):
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles(PROFILE_ENV))
+    _, _, content = stream({"user_input": "oi", "profile": "2", "model_name": "think",
+                            "endpoint_url": "http://nai.test/enterpriseai/gateway/v1/chat/completions"})
+    assert content.startswith("Resposta para 'oi'")
+    ok = client.post("/api/v1/chat/connectivity", json={"profile": "2"}).json()
+    assert ok["ok"]
+
+
+def test_key_not_sent_to_other_host(monkeypatch):
+    seen = {}
+
+    def make_client(timeout=None, limits=None):
+        def handler(request):
+            seen["auth"] = request.headers.get("authorization")
+            return httpx.Response(401, json={"error": {"message": "no"}})
+        return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles(PROFILE_ENV))
+    monkeypatch.setattr(nai, "make_client", make_client)
+    client.post("/api/v1/chat/connectivity", json={"endpoint_url": "https://site-qualquer.example/v1/chat/completions",
+                                                   "profile": "10"})
+    assert seen["auth"] is None

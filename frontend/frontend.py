@@ -13,6 +13,7 @@ import queue
 import threading
 import time
 from datetime import datetime
+from urllib.parse import urlsplit
 
 import requests
 import streamlit as st
@@ -71,6 +72,38 @@ def backend_defaults(api):
     except requests.RequestException:
         pass
     return dict(FALLBACK_DEFAULTS), False
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def backend_profiles(api):
+    """Endpoints salvos no servidor (sem as API Keys)."""
+    try:
+        resp = requests.get(f"{api}/profiles", timeout=3)
+        if resp.status_code == 200:
+            return resp.json().get("profiles", [])
+    except requests.RequestException:
+        pass
+    return []
+
+
+def endpoint_host(url):
+    """scheme://host:porta, igual ao backend: uma chave só vale para o mesmo host."""
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return ""
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+# Chaves vindas do ambiente do próprio frontend: ficam no servidor do Streamlit e
+# não são mais preenchidas no campo da tela (não chegam ao navegador).
+FRONTEND_KEYS = {}
+for _url_var, _key_var in (("NAI_ENDPOINT_B", "NAI_API_KEY_B"), ("NAI_ENDPOINT", "NAI_API_KEY")):
+    _host = endpoint_host(os.getenv(_url_var))
+    if _host and os.getenv(_key_var):
+        FRONTEND_KEYS[_host] = os.getenv(_key_var)
 
 
 def post_json(path, body, timeout=30):
@@ -157,10 +190,10 @@ def init_state():
     defaults = {
         "mode": MODE_CHAT,
         "endpoint_A": endpoint,
-        "key_A": os.getenv("NAI_API_KEY", ""),
+        "key_A": "",
         "model_A": model,
         "endpoint_B": os.getenv("NAI_ENDPOINT_B") or endpoint,
-        "key_B": os.getenv("NAI_API_KEY_B", ""),
+        "key_B": "",
         "model_B": os.getenv("MODEL_NAME_B") or model,
         "system_prompt": d["system_prompt"],
         "temperature": float(d["temperature"]),
@@ -187,6 +220,11 @@ def init_state():
         "bench_ignore_eos": False,
         "bench_order": BENCH_SEQUENTIAL,
         "bench_run": None,
+        "profile_A": None,
+        "profile_B": None,
+        "saved_A": "",
+        "saved_B": "",
+        "recent_endpoints": [],
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -210,13 +248,43 @@ for _key in PERSISTENT_KEYS:
         ss[_key] = ss[_key]
 
 
+def key_source(side):
+    """De onde vem a API Key deste endpoint: (chave a enviar, descrição ou None)."""
+    typed = (ss[f"key_{side}"] or "").strip()
+    if typed:
+        return typed, None
+    host = endpoint_host(ss[f"endpoint_{side}"])
+    if side == "B" and ss["key_A"].strip() and host and host == endpoint_host(ss["endpoint_A"]):
+        return ss["key_A"].strip(), "Usando a mesma API Key do endpoint A (mesmo host)."
+    if host and host in FRONTEND_KEYS:
+        return FRONTEND_KEYS[host], "🔑 Usando a API Key configurada no servidor para este host."
+    if host and any(p.get("has_api_key") and endpoint_host(p["endpoint_url"]) == host
+                    for p in backend_profiles(API)):
+        return "", "🔑 Usando a API Key salva no servidor para este host."
+    return "", None
+
+
 def endpoint_config(side):
-    key = ss[f"key_{side}"] or (ss["key_A"] if side == "B" else "")
     return {
         "endpoint_url": ss[f"endpoint_{side}"],
-        "api_key": key,
+        "api_key": key_source(side)[0],
         "model_name": ss[f"model_{side}"],
+        "profile": ss[f"profile_{side}"],
     }
+
+
+def remember_endpoint(side):
+    """Guarda o endpoint usado com sucesso na lista de recentes desta sessão."""
+    entry = {
+        "url": ss[f"endpoint_{side}"].strip(),
+        "model": ss[f"model_{side}"].strip(),
+        "key": ss[f"key_{side}"].strip(),
+        "profile": ss[f"profile_{side}"],
+    }
+    if not entry["url"]:
+        return
+    recents = [r for r in ss["recent_endpoints"] if (r["url"], r["model"]) != (entry["url"], entry["model"])]
+    ss["recent_endpoints"] = ([entry] + recents)[:8]
 
 
 def build_history(messages):
@@ -353,10 +421,57 @@ def typed_model(side):
         ss[f"pick_{side}"] = value if value in ss[f"models_{side}"] else None
 
 
+def saved_options():
+    options = [""]
+    labels = {"": "Selecionar..."}
+    for p in backend_profiles(API):
+        value = f"p:{p['id']}"
+        options.append(value)
+        model = f" · {p['model_name']}" if p.get("model_name") else ""
+        labels[value] = f"⭐ {p['name']}{model}"
+    for i, r in enumerate(ss["recent_endpoints"]):
+        value = f"r:{i}"
+        options.append(value)
+        host = endpoint_host(r["url"]).split("://")[-1] or r["url"]
+        labels[value] = f"🕘 {r['model'] or 'modelo padrão'} @ {host}"
+    return options, labels
+
+
+def apply_saved(side):
+    choice = ss[f"saved_{side}"]
+    entry = None
+    if choice.startswith("p:"):
+        p = next((p for p in backend_profiles(API) if p["id"] == choice[2:]), None)
+        if p:
+            entry = {"url": p["endpoint_url"], "model": p["model_name"], "key": "", "profile": p["id"]}
+    elif choice.startswith("r:"):
+        idx = int(choice[2:])
+        if idx < len(ss["recent_endpoints"]):
+            entry = dict(ss["recent_endpoints"][idx])
+    if entry:
+        ss[f"endpoint_{side}"] = entry["url"]
+        if entry["model"]:
+            ss[f"model_{side}"] = entry["model"]
+        ss[f"key_{side}"] = entry["key"]
+        ss[f"profile_{side}"] = entry["profile"]
+        ss[f"models_{side}"] = []
+        ss.pop(f"pick_{side}", None)
+        ss[f"conn_{side}"] = None
+    ss[f"saved_{side}"] = ""  # o seletor funciona como menu: volta ao início
+
+
 def endpoint_controls(side):
+    options, labels = saved_options()
+    if len(options) > 1:
+        st.selectbox("Endpoints salvos", options, key=f"saved_{side}", format_func=labels.get,
+                     on_change=apply_saved, args=(side,),
+                     help="⭐ salvos no servidor (variáveis de ambiente) · 🕘 usados nesta sessão")
     st.text_input("URL do endpoint", key=f"endpoint_{side}")
-    help_key = "Em branco: usa a mesma do endpoint A." if side == "B" else None
-    st.text_input("API Key", key=f"key_{side}", type="password", help=help_key)
+    st.text_input("API Key", key=f"key_{side}", type="password",
+                  help="Em branco: usa a chave salva no servidor para este host, se houver.")
+    note = key_source(side)[1]
+    if note:
+        st.caption(note)
 
     models = ss[f"models_{side}"]
     if models:
@@ -377,8 +492,10 @@ def endpoint_controls(side):
     if col1.button("🔄 Listar", key=f"load_{side}", help="Buscar os modelos do endpoint", width="stretch"):
         with st.spinner("Buscando modelos..."):
             cfg = endpoint_config(side)
-            result = post_json("models", {"endpoint_url": cfg["endpoint_url"], "api_key": cfg["api_key"]})
+            result = post_json("models", {"endpoint_url": cfg["endpoint_url"], "api_key": cfg["api_key"],
+                                          "profile": cfg["profile"]})
         if result.get("status") == "success":
+            remember_endpoint(side)
             ss[f"models_{side}"] = result["models"]
             current = ss[f"model_{side}"]
             ss[f"pick_{side}"] = current if current in result["models"] else None
@@ -390,16 +507,89 @@ def endpoint_controls(side):
     if col2.button("🩺 Testar", key=f"test_{side}", help="Testar rede, TLS e API Key", width="stretch"):
         with st.spinner("Testando conexão..."):
             cfg = endpoint_config(side)
-            result = post_json("connectivity", {"endpoint_url": cfg["endpoint_url"], "api_key": cfg["api_key"]})
+            result = post_json("connectivity", {"endpoint_url": cfg["endpoint_url"], "api_key": cfg["api_key"],
+                                                "profile": cfg["profile"]})
         if "error" in result:
             ss[f"conn_{side}"] = {"kind": "error", "text": result["error"]}
         else:
+            if result.get("ok"):
+                remember_endpoint(side)
             kind = "success" if result.get("ok") else ("warning" if result.get("reachable") else "error")
             ss[f"conn_{side}"] = {"kind": kind, "text": result.get("message", "")}
 
     status = ss[f"conn_{side}"]
     if status:
         getattr(st, status["kind"])(status["text"])
+
+
+def current_namespace():
+    """Namespace do próprio pod, quando roda no Kubernetes."""
+    try:
+        with open("/var/run/secrets/kubernetes.io/serviceaccount/namespace", encoding="utf-8") as f:
+            return f.read().strip() or "<namespace>"
+    except OSError:
+        return "<namespace>"
+
+
+def shell_quote(value):
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def profiles_snippet(entries, start, include_keys):
+    """Trecho de env do deployment.yaml e comando do Secret para salvar endpoints."""
+    env_lines, secret_args = [], []
+    for offset, e in enumerate(entries):
+        n = start + offset
+        host = endpoint_host(e["url"]).split("://")[-1] or e["url"]
+        name = f"{e['model']} @ {host}" if e["model"] else host
+        env_lines += [
+            f"- name: NAI_PROFILE_{n}_NAME",
+            f"  value: {json.dumps(name, ensure_ascii=False)}",
+            f"- name: NAI_PROFILE_{n}_URL",
+            f"  value: {json.dumps(e['url'], ensure_ascii=False)}",
+        ]
+        if e["model"]:
+            env_lines += [f"- name: NAI_PROFILE_{n}_MODEL", f"  value: {json.dumps(e['model'], ensure_ascii=False)}"]
+        if e["key"]:
+            env_lines += [
+                f"- name: NAI_PROFILE_{n}_API_KEY",
+                "  valueFrom:",
+                "    secretKeyRef:",
+                "      name: nai-endpoints",
+                f"      key: profile-{n}-api-key",
+                "      optional: true",
+            ]
+            value = e["key"] if include_keys else "<API_KEY>"
+            secret_args.append(f"  --from-literal=profile-{n}-api-key={shell_quote(value)} \\")
+    secret_cmd = None
+    if secret_args:
+        secret_cmd = "\n".join(
+            [f"kubectl create secret generic nai-endpoints -n {current_namespace()} \\"] + secret_args
+            + ["  --dry-run=client -o yaml | kubectl apply -f -"]
+        )
+    return "\n".join(env_lines), secret_cmd
+
+
+def render_profile_export():
+    """Mostra como tornar permanentes os endpoints usados nesta sessão."""
+    saved = {(p["endpoint_url"], p.get("model_name") or "") for p in backend_profiles(API)}
+    entries = [r for r in ss["recent_endpoints"] if (r["url"], r["model"]) not in saved]
+    with st.expander("🗂️ Salvar endpoints no Kubernetes"):
+        st.caption("Endpoints salvos ficam em variáveis de ambiente do backend e aparecem para todos com ⭐. "
+                   "As API Keys ficam num Secret e nunca são enviadas ao navegador.")
+        if not entries:
+            st.caption("Os endpoints que você usar com sucesso nesta sessão aparecem aqui, prontos para salvar.")
+            return
+        ids = [int(p["id"]) for p in backend_profiles(API) if str(p["id"]).isdigit()]
+        include_keys = st.checkbox("Mostrar as API Keys no comando", key="export_keys",
+                                   help="Desmarcado, o comando usa <API_KEY> no lugar das chaves.")
+        env_yaml, secret_cmd = profiles_snippet(entries, max(ids, default=0) + 1, include_keys)
+        st.markdown("**1. No `deployment.yaml`, em `env:` do container `app-container`:**")
+        st.code(env_yaml, language="yaml")
+        if secret_cmd:
+            st.markdown("**2. Crie ou atualize o Secret com as chaves:**")
+            st.code(secret_cmd, language="bash")
+        st.caption("Depois do deploy (ou de reiniciar o backend), os endpoints aparecem como ⭐ no seletor.")
 
 
 with st.sidebar:
@@ -428,6 +618,7 @@ with st.sidebar:
             help="Simultâneo: os dois recebem a pergunta ao mesmo tempo. Sequencial: B só começa quando A "
                  "termina, para que um não dispute recursos com o outro (útil quando estão no mesmo cluster/GPU).",
         )
+    render_profile_export()
 
 if benching:
     # O seletor de arquivo não aparece neste modo; ao voltar ele vem vazio,
@@ -487,6 +678,8 @@ else:
                     ss["cmp_A"], ss["cmp_B"] = [], []
                 else:
                     ss["messages"] = []
+                ss["total_tokens"] = 0
+                ss["last_metrics"] = {}
                 st.rerun()
             col2.download_button(
                 "⬇️ Exportar",
@@ -498,7 +691,7 @@ else:
             )
 
         st.subheader("📊 Métricas")
-        st.metric("Tokens acumulados na sessão", f"{ss['total_tokens']:,}")
+        st.metric("Tokens acumulados", f"{ss['total_tokens']:,}", help="Zera ao limpar a conversa.")
         for label, m in ss["last_metrics"].items():
             st.caption(f"**{label}** {fmt_metrics(m)}")
 
@@ -537,11 +730,13 @@ def assistant_slots():
     return slots
 
 
-def finish(answer, label, store):
+def finish(answer, label, store, side):
     if answer.notice:
         ss["pending_toast"] = answer.notice
     msg = answer.as_message()
     store.append(msg)
+    if not answer.error and answer.content:
+        remember_endpoint(side)
     if answer.metrics:
         ss["total_tokens"] += int(answer.metrics.get("total_tokens") or 0)
         ss["last_metrics"][label] = answer.metrics
@@ -564,7 +759,7 @@ def run_chat(prompt):
                 last = now
             if answer.done:
                 break
-    finish(answer, "Última resposta:", ss["messages"])
+    finish(answer, "Última resposta:", ss["messages"], "A")
 
 
 def stream_worker(payload, out_queue):
@@ -619,7 +814,7 @@ def run_compare(prompt):
         time.sleep(UI_REFRESH_SECONDS)
 
     for side in ("A", "B"):
-        finish(state[side]["answer"], f"{side}:", ss[f"cmp_{side}"])
+        finish(state[side]["answer"], f"{side}:", ss[f"cmp_{side}"], side)
 
 
 def compare_summary():
@@ -788,6 +983,9 @@ def run_benchmark_ui(sides):
                 s["bar"].progress(min(fraction, 1.0), text=bench_progress_text(side, s))
         time.sleep(UI_REFRESH_SECONDS)
 
+    for side, s in state.items():
+        if s["summary"] and s["summary"].get("succeeded"):
+            remember_endpoint(side)
     ss["bench_run"] = {
         "timestamp": started_at.strftime("%d/%m/%Y %H:%M:%S"),
         "order": BENCH_SEQUENTIAL if sequential else BENCH_PARALLEL,

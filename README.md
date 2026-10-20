@@ -18,6 +18,9 @@ O pipeline em `.github/workflows/docker-build.yml` publica `thicoral/coral-app:v
 - **Raciocínio do modelo** em seção recolhível, para modelos que o retornam (`reasoning_content`, `reasoning` ou tags `<think>`).
 - **Parâmetros**: system prompt, temperatura e máximo de tokens, ajustáveis na barra lateral.
 - **Lista de modelos** do endpoint (`/v1/models`) e **teste de conexão** (rede, TLS e API Key).
+- **Endpoints salvos e recentes**: um seletor preenche URL, modelo e chave. Os salvos (⭐) vêm de variáveis
+  de ambiente do backend; os recentes (🕘) são os usados com sucesso na sessão. O app gera o YAML para salvar
+  os recentes no Kubernetes.
 - **Modo comparação**: a mesma pergunta para dois endpoints ou modelos lado a lado, com resumo de quem foi mais rápido.
   O envio pode ser simultâneo ou sequencial (B só começa quando A termina, para um não disputar recursos com o outro).
 - **Modo benchmark**: repete a mesma pergunta várias vezes e mede o endpoint com estatística (veja abaixo).
@@ -25,6 +28,39 @@ O pipeline em `.github/workflows/docker-build.yml` publica `thicoral/coral-app:v
 - **Exportar a conversa** em Markdown.
 
 Ferramentas (MCP) não ficam mais no app: use as conexões MCP configuradas no próprio NAI.
+
+## Endpoints salvos
+
+O app não grava variáveis de ambiente em tempo de execução: os endpoints salvos são definidos no
+`deployment.yaml` (backend) e carregados quando o pod sobe. Cada perfil usa um número:
+
+```yaml
+- name: NAI_PROFILE_1_NAME
+  value: "GPU L40S - Llama 3.1 8B"
+- name: NAI_PROFILE_1_URL
+  value: "https://<nai>/enterpriseai/gateway/v1/chat/completions"
+- name: NAI_PROFILE_1_MODEL
+  value: "llama-31-8b"
+- name: NAI_PROFILE_1_API_KEY
+  valueFrom:
+    secretKeyRef:
+      name: nai-endpoints
+      key: profile-1-api-key
+      optional: true
+```
+
+```bash
+kubectl create secret generic nai-endpoints -n <namespace> \
+  --from-literal=profile-1-api-key='<API_KEY>' \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+O endpoint padrão (`NAI_ENDPOINT`, `MODEL_NAME`, `NAI_API_KEY`) também aparece no seletor. Na barra lateral,
+**🗂️ Salvar endpoints no Kubernetes** gera esses trechos a partir dos endpoints usados na sessão.
+
+Segurança das chaves: as API Keys dos perfis ficam só no backend (a rota `/profiles` não as devolve e elas
+não são preenchidas na tela). Uma chave salva só é enviada para o mesmo host (`scheme://host:porta`) do
+perfil, então trocar a URL para outro endereço não leva a chave junto.
 
 ## Benchmark
 
@@ -51,7 +87,9 @@ Todas são opcionais; sem elas o app usa os padrões abaixo.
 | Variável | Onde | Padrão | Uso |
 |---|---|---|---|
 | `NAI_ENDPOINT` | backend e frontend | gateway de demo | URL de chat completions do NAI |
-| `NAI_API_KEY` | backend e frontend | vazio | API Key do endpoint |
+| `NAI_API_KEY` | backend e frontend | vazio | API Key do endpoint padrão (usada só no mesmo host) |
+| `NAI_PROFILE_<N>_NAME`, `_URL`, `_MODEL`, `_API_KEY` | backend | — | Endpoints salvos (veja acima) |
+| `NAI_PROFILE_DEFAULT_NAME` | backend | `Padrão (manifest)` | Nome do endpoint padrão no seletor |
 | `MODEL_NAME` | backend e frontend | `unified-endpoint` | Modelo padrão |
 | `NAI_ENDPOINT_B`, `NAI_API_KEY_B`, `MODEL_NAME_B` | frontend | iguais ao endpoint A | Valores iniciais do endpoint B no modo comparação |
 | `BACKEND_URL` | frontend | `http://app-service` | Endereço do backend |
@@ -85,6 +123,7 @@ Para não deixar a API Key no manifest, ela pode vir de um Secret:
 | `POST /api/v1/chat/models` | Modelos do endpoint |
 | `POST /api/v1/chat/connectivity` | Teste de rede, TLS e autenticação |
 | `POST /api/v1/chat/benchmark` | Benchmark do endpoint (NDJSON: `start`, `warmup`, `result`, `summary`, `error`, `done`) |
+| `GET /api/v1/chat/profiles` | Endpoints salvos (sem as API Keys) |
 | `GET /api/v1/chat/defaults` | Padrões configurados (sem a API Key) |
 
 ## Rodar localmente
