@@ -64,21 +64,52 @@ perfil, então trocar a URL para outro endereço não leva a chave junto.
 
 ## Benchmark
 
-O modo **📈 Benchmark** mede um endpoint (ou compara dois) repetindo o mesmo prompt:
+O modo **📈 Benchmark** mede um endpoint (ou compara dois) repetindo o mesmo prompt. Há três tipos de teste:
 
-- Configurável: número de requisições, concorrência, aquecimento, máximo de tokens, temperatura,
-  prefixo anti-cache e tamanho fixo de saída (`ignore_eos`, do vLLM).
-- Métricas por requisição: tempo até o 1º token (TTFT), tempo total, tempo por token de saída (TPOT),
-  velocidade de geração (tok/s), intervalo entre chunks e tokens de entrada/saída.
-- Estatísticas: média, desvio padrão, coeficiente de variação, mínimo, p50, p90, p99 e máximo, além do
-  throughput agregado (tokens/s somando todas as requisições).
-- Exporta relatório em Markdown e os dados brutos em CSV.
+- **Rodada única**: uma configuração (requisições, concorrência, aquecimento, máximo de tokens, temperatura,
+  prefixo anti-cache e tamanho fixo de saída com `ignore_eos`, do vLLM).
+- **Varredura de concorrência**: repete a medição com vários níveis (ex.: 1, 2, 4, 8, 16 usuários
+  simultâneos), com (fator × concorrência) requisições por nível.
+- **Varredura de contexto**: repete com prompts de vários tamanhos (ex.: 256, 1k, 4k, 16k tokens). O tamanho
+  é calibrado com o tokenizador do próprio modelo e o valor real (do `usage`) é o que vai para os gráficos.
 
-Para a medição ser precisa, o benchmark roda no backend, dentro do cluster, e não no navegador. O relógio
-é monotônico, o TTFT começa a contar quando a requisição termina de ser enviada, as conexões são
-reaproveitadas, o aquecimento é descartado e os tokens vêm do campo `usage` do NAI. Validado contra um
-servidor com tempos conhecidos: o tempo por token bate com a referência (erro abaixo de 0,1%) e o TTFT
-fica a cerca de 1 ms do medido por um cliente de socket cru.
+Métricas por requisição: tempo até o 1º token (TTFT), tempo total, tempo por token de saída (TPOT),
+velocidade de geração, intervalo entre chunks e tokens de entrada/saída. Estatísticas: média, desvio, CV,
+mínimo, p50, p90, p99, máximo, throughput agregado e **throughput em regime** (só o trecho com todas as vagas
+de concorrência ocupadas, sem a subida e a descida da carga).
+
+Gráficos:
+
+- Rodada única: linha do tempo das requisições (fila + prefill × geração), requisições em andamento ao longo
+  do tempo, tokens/s ao longo do tempo, KV cache e fila do servidor, distribuições (histogramas) e valores
+  por requisição.
+- Varredura de concorrência: throughput, TTFT p50/p90, geração por usuário e tempo total por nível;
+  curva latência × throughput; pico de KV cache e de fila por nível.
+- Varredura de contexto: TTFT, velocidade de prefill, geração por usuário e tempo total por tamanho de
+  contexto; pico de KV cache por tamanho.
+
+Tudo pode ser exportado em Markdown (relatório) e CSV (dados brutos).
+
+### KV cache, fila e cache de prefixo
+
+Essas métricas não aparecem na API de chat: ficam no endpoint `/metrics` do servidor de inferência (vLLM).
+Informe essa URL na barra lateral (campo **URL de métricas do servidor**, visível no modo Benchmark) e use
+**📈 Testar métricas** para conferir. Durante o benchmark, o backend lê o `/metrics` a cada 0,5 s e mostra:
+uso do KV cache (`vllm:kv_cache_usage_perc`), requisições em execução e na fila, taxa de acerto do cache de
+prefixo e preempções. Nomes antigos (`gpu_cache_usage_perc`) e sem o prefixo `vllm:` também são aceitos.
+
+A URL precisa ser acessível a partir do pod do backend. Se o NAI roda no mesmo cluster, costuma ser o
+Service interno do pod de inferência (algo como `http://<servico>.<namespace>.svc:<porta>/metrics`). A URL
+pode ficar salva no endpoint: `NAI_PROFILE_<N>_METRICS_URL` (ou `NAI_METRICS_URL` para o padrão).
+
+### Precisão
+
+O benchmark roda no backend, dentro do cluster, e não no navegador. O relógio é monotônico, o TTFT começa a
+contar quando a requisição termina de ser enviada, as conexões são reaproveitadas, o aquecimento é
+descartado e os tokens vêm do campo `usage` do NAI. Validado contra um servidor com tempos conhecidos: o
+tempo por token bate com a referência (erro abaixo de 0,1%), o TTFT fica a cerca de 1 ms do medido por um
+cliente de socket cru, a soma da linha do tempo bate com o total de tokens e os tokens contados pelo
+cliente são iguais aos contadores do servidor (`/metrics`).
 
 ## Variáveis de ambiente
 
@@ -88,7 +119,8 @@ Todas são opcionais; sem elas o app usa os padrões abaixo.
 |---|---|---|---|
 | `NAI_ENDPOINT` | backend e frontend | gateway de demo | URL de chat completions do NAI |
 | `NAI_API_KEY` | backend e frontend | vazio | API Key do endpoint padrão (usada só no mesmo host) |
-| `NAI_PROFILE_<N>_NAME`, `_URL`, `_MODEL`, `_API_KEY` | backend | — | Endpoints salvos (veja acima) |
+| `NAI_PROFILE_<N>_NAME`, `_URL`, `_MODEL`, `_API_KEY`, `_METRICS_URL` | backend | — | Endpoints salvos (veja acima) |
+| `NAI_METRICS_URL` | backend | vazio | `/metrics` do servidor do endpoint padrão (KV cache no benchmark) |
 | `NAI_PROFILE_DEFAULT_NAME` | backend | `Padrão (manifest)` | Nome do endpoint padrão no seletor |
 | `MODEL_NAME` | backend e frontend | `unified-endpoint` | Modelo padrão |
 | `NAI_ENDPOINT_B`, `NAI_API_KEY_B`, `MODEL_NAME_B` | frontend | iguais ao endpoint A | Valores iniciais do endpoint B no modo comparação |
@@ -122,7 +154,8 @@ Para não deixar a API Key no manifest, ela pode vir de um Secret:
 | `POST /api/v1/chat/ask` | Resposta completa, sem streaming |
 | `POST /api/v1/chat/models` | Modelos do endpoint |
 | `POST /api/v1/chat/connectivity` | Teste de rede, TLS e autenticação |
-| `POST /api/v1/chat/benchmark` | Benchmark do endpoint (NDJSON: `start`, `warmup`, `result`, `summary`, `error`, `done`) |
+| `POST /api/v1/chat/benchmark` | Benchmark do endpoint (NDJSON: `start`, `calibration`, `warmup`, `result`, `summary`, `error`, `done`) |
+| `POST /api/v1/chat/metrics-check` | Lê uma vez o `/metrics` do servidor de inferência e lista o que encontrou |
 | `GET /api/v1/chat/profiles` | Endpoints salvos (sem as API Keys) |
 | `GET /api/v1/chat/defaults` | Padrões configurados (sem a API Key) |
 

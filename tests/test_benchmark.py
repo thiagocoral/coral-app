@@ -138,3 +138,96 @@ def test_validation_limits():
     assert client.post("/api/v1/chat/benchmark", json={"requests": 0}).status_code == 422
     assert client.post("/api/v1/chat/benchmark", json={"concurrency": 100}).status_code == 422
     assert client.post("/api/v1/chat/benchmark", json={"prompt": ""}).status_code == 422
+
+
+# --- métricas do servidor (formato Prometheus) ----------------------------
+
+from core.modules import server_metrics as sm  # noqa: E402
+
+PROM = """
+# HELP vllm:kv_cache_usage_perc KV-cache usage. 1 means 100 percent usage.
+# TYPE vllm:kv_cache_usage_perc gauge
+vllm:kv_cache_usage_perc{engine="0",model_name="llama"} 0.42
+vllm:kv_cache_usage_perc{engine="0",model_name="outro"} 0.90
+vllm:num_requests_running{engine="0",model_name="llama"} 3.0
+vllm:num_requests_running{engine="1",model_name="llama"} 2.0
+vllm:num_requests_waiting{model_name="llama"} 1
+vllm:prefix_cache_hits_total{model_name="llama"} 120.0
+vllm:prefix_cache_queries_total{model_name="llama"} 480.0
+vllm:generation_tokens_total{model_name="llama",label_with_quote="a\\"b"} 1000 1712345678
+"""
+
+
+def test_parse_and_extract_vllm_metrics():
+    series = sm.parse_prometheus(PROM)
+    v = sm.extract(series, "llama")
+    assert v["kv_cache"] == pytest.approx(42.0)          # fração -> %, só do modelo pedido
+    assert v["running"] == 5 and v["waiting"] == 1      # soma entre engines
+    assert v["prefix_hits"] == 120 and v["generation_tokens"] == 1000
+    assert v["_found"]["prefix_hits"] == "vllm:prefix_cache_hits_total"
+    # sem filtro de modelo: KV usa o maior valor
+    assert sm.extract(series)["kv_cache"] == pytest.approx(90.0)
+
+
+def test_extract_legacy_and_unprefixed_names():
+    v = sm.extract(sm.parse_prometheus("gpu_cache_usage_perc 0.5\nnum_requests_running 4\n"))
+    assert v["kv_cache"] == pytest.approx(50.0) and v["running"] == 4
+    v = sm.extract(sm.parse_prometheus("vllm:gpu_cache_usage_perc 0.25\n"))
+    assert v["kv_cache"] == pytest.approx(25.0)
+    assert sm.extract(sm.parse_prometheus("outra_metrica 1\n"))["_found"] == {}
+
+
+def test_metrics_check_route():
+    ok = client.post("/api/v1/chat/metrics-check", json={"metrics_url": "http://nai.test/metrics"}).json()
+    assert ok["ok"] and ok["names"]["kv_cache"] == "vllm:kv_cache_usage_perc"
+    bad = client.post("/api/v1/chat/metrics-check", json={"metrics_url": "http://nai.test/enterpriseai/gateway/v1/models"}).json()
+    assert not bad["ok"]
+
+
+# --- linha do tempo, regime estável, contexto e servidor --------------------
+
+def test_timeline_sums_to_output_tokens():
+    events = run(model_name="load-5-2-30", requests=6, concurrency=3, warmup=0)
+    s = summary_of(events)
+    tl = s["timeline"]
+    assert tl["bin_s"] and len(tl["t"]) == len(tl["tokens_per_s"])
+    total_from_timeline = sum(v * tl["bin_s"] for v in tl["tokens_per_s"])
+    assert total_from_timeline == pytest.approx(s["total_output_tokens"], rel=1e-6)
+    results = [e["result"] for e in events if e["type"] == "result"]
+    for r in results:
+        assert 0 <= r["start_s"] <= r["first_s"] <= r["end_s"]
+
+
+def test_steady_state_window():
+    s = summary_of(run(model_name="load-5-2-20", requests=12, concurrency=3, warmup=0))
+    assert s["steady_throughput_tps"] and s["steady_throughput_tps"] > 0
+    w0, w1 = s["steady_window_s"]
+    assert w1 > w0
+    s1 = summary_of(run(model_name="load-5-2-20", requests=3, concurrency=1, warmup=0))
+    assert s1["steady_throughput_tps"] is None
+
+
+def test_context_target_is_calibrated():
+    events = run(model_name="load-5-1-5", requests=2, warmup=0, max_tokens=5, prompt_tokens_target=1500)
+    cal = [e for e in events if e["type"] == "calibration"][0]
+    assert cal["calibrated"] and cal["chars_per_token"] == pytest.approx(4.0, rel=0.01)
+    s = summary_of(events)
+    assert abs(s["metrics"]["prompt_tokens"]["p50"] - 1500) <= 3
+    assert s["context"]["target"] == 1500
+
+
+def test_server_metrics_collected_during_run():
+    fake_nai.LOAD.update({"prompt_tokens": 0, "generation_tokens": 0, "kv_tokens": 0, "kv_peak": 0.0})
+    s = summary_of(run(model_name="load-5-20-40", requests=8, concurrency=4, warmup=1,
+                       metrics_url="http://nai.test/metrics"))
+    server = s["server"]
+    assert server["error"] is None and server["samples"]
+    assert server["kv_peak"] > 0 and server["running_peak"] >= 1
+    # o servidor contou exatamente os mesmos tokens que o cliente (aquecimento fora)
+    assert server["server_generation_tokens"] == s["total_output_tokens"]
+    assert server["server_prompt_tokens"] == s["total_prompt_tokens"]
+
+
+def test_bad_metrics_url_does_not_break_benchmark():
+    s = summary_of(run(model_name="load-5-1-5", requests=2, warmup=0, metrics_url="http://nai.test/nao-existe"))
+    assert s["succeeded"] == 2 and s["server"]["error"]

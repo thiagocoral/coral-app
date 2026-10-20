@@ -30,6 +30,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
 import httpx
 
 from core.modules import nai_client as nai
+from core.modules import server_metrics
 
 DEFAULT_PROMPT = (
     "Explique, em cerca de 300 palavras, o que é Kubernetes e por que ele é usado "
@@ -168,10 +169,12 @@ async def measure_request(
                     "decode_tps": (out / (e2e / 1000)) if out else None,
                     "output_tokens": out, "prompt_tokens": usage.get("prompt_tokens"),
                     "estimated": out is None, "chunks": 0,
+                    "_t_send": t_start, "_t_first": None, "_t_end": t_end, "_chunk_times": [],
                 }, gaps
 
             t_first: Optional[float] = None
             t_last: Optional[float] = None
+            chunk_times: List[float] = []
             chunks = 0
             usage: Dict[str, Any] = {}
             async for line in resp.aiter_lines():
@@ -197,6 +200,7 @@ async def measure_request(
                     else:
                         gaps.append((now - t_last) * 1000)
                     t_last = now
+                    chunk_times.append(now)
                     chunks += 1
             t_end = time.perf_counter()
     except StreamOptionsRejected:
@@ -225,16 +229,91 @@ async def measure_request(
         "prompt_tokens": usage.get("prompt_tokens"),
         "estimated": estimated,
         "chunks": chunks,
+        "_t_send": t_start, "_t_first": t_first, "_t_end": t_end, "_chunk_times": chunk_times,
     }, gaps
 
 
 def _failed(message: str, t_start: float) -> Dict[str, Any]:
+    t_end = time.perf_counter()
     return {
         "ok": False, "error": message, "streaming": True,
-        "ttft_ms": None, "e2e_ms": (time.perf_counter() - t_start) * 1000, "tpot_ms": None,
+        "ttft_ms": None, "e2e_ms": (t_end - t_start) * 1000, "tpot_ms": None,
         "decode_tps": None, "output_tokens": None, "prompt_tokens": None,
         "estimated": False, "chunks": 0,
+        "_t_send": t_start, "_t_first": None, "_t_end": t_end, "_chunk_times": [],
     }
+
+
+# ---------------------------------------------------------------------------
+# Linha do tempo e regime estável
+# ---------------------------------------------------------------------------
+
+def timeline(results: List[Dict[str, Any]], t0: float) -> Dict[str, Any]:
+    """Tokens/s ao longo do tempo, em ~100 intervalos.
+
+    Cada chunk vale (tokens de saída da requisição ÷ chunks), para que a soma bata
+    com o total informado pelo NAI mesmo quando um chunk traz mais de um token.
+    """
+    points: List[Tuple[float, float]] = []
+    for r in results:
+        times = r.get("_chunk_times") or []
+        if not times or not r.get("output_tokens"):
+            continue
+        weight = r["output_tokens"] / len(times)
+        points.extend((t - t0, weight) for t in times)
+    ends = [r["_t_end"] - t0 for r in results if r.get("_t_end")]
+    if not points or not ends:
+        return {"bin_s": None, "t": [], "tokens_per_s": []}
+    total = max(ends)
+    bin_s = max(0.1, round(total / 100, 2))
+    n = int(math.ceil(total / bin_s)) or 1
+    bins = [0.0] * n
+    for t, w in points:
+        idx = min(n - 1, max(0, int(t // bin_s)))
+        bins[idx] += w
+    return {"bin_s": bin_s, "t": [round(i * bin_s, 3) for i in range(n)],
+            "tokens_per_s": [round(b / bin_s, 2) for b in bins]}
+
+
+def steady_state(results: List[Dict[str, Any]], t0: float, concurrency: int) -> Dict[str, Any]:
+    """Throughput no regime estável: do instante em que as N vagas ficam ocupadas
+    até o início da última requisição (depois disso as vagas começam a esvaziar).
+    Exclui a subida e a descida da carga, que puxam a média total para baixo."""
+    starts = sorted(r["_t_send"] - t0 for r in results if r.get("_t_send"))
+    if concurrency < 2 or len(starts) < 2 * concurrency:
+        return {"steady_throughput_tps": None, "steady_window_s": None}
+    w0, w1 = starts[concurrency - 1], starts[-1]
+    # A janela precisa cobrir ao menos uma requisição típica inteira para medir ciclos completos
+    durations = sorted(r["_t_end"] - r["_t_send"] for r in results if r.get("ok") and r.get("_t_end"))
+    typical = durations[len(durations) // 2] if durations else 0
+    if w1 - w0 <= 0 or w1 - w0 < typical:
+        return {"steady_throughput_tps": None, "steady_window_s": None}
+    tokens = 0.0
+    for r in results:
+        times = r.get("_chunk_times") or []
+        if not times or not r.get("output_tokens"):
+            continue
+        weight = r["output_tokens"] / len(times)
+        tokens += weight * sum(1 for t in times if w0 <= t - t0 <= w1)
+    return {"steady_throughput_tps": tokens / (w1 - w0), "steady_window_s": [round(w0, 3), round(w1, 3)]}
+
+
+# ---------------------------------------------------------------------------
+# Prompt com tamanho de contexto definido
+# ---------------------------------------------------------------------------
+
+FILLER = (
+    "O Nutanix Kubernetes Platform simplifica a operação de clusters Kubernetes em ambientes híbridos, "
+    "com governança centralizada, observabilidade integrada e ciclo de vida automatizado. Aplicações de "
+    "inteligência artificial se beneficiam de escalabilidade elástica, isolamento de cargas e acesso "
+    "padronizado a GPUs, enquanto equipes de plataforma mantêm segurança, conformidade e custos sob controle. "
+)
+
+
+def context_prompt(question: str, filler_chars: int) -> str:
+    reps = filler_chars // len(FILLER) + 1
+    filler = (FILLER * reps)[:max(0, filler_chars)]
+    return f"Contexto:\n{filler}\n\nCom base no contexto acima, responda: {question}"
 
 
 # ---------------------------------------------------------------------------
@@ -268,17 +347,20 @@ async def run_benchmark(
     temperature: float,
     avoid_prompt_cache: bool,
     ignore_eos: bool,
+    metrics_url: Optional[str] = None,
+    prompt_tokens_target: Optional[int] = None,
 ) -> AsyncIterator[Dict[str, Any]]:
-    """Gera eventos: start, warmup, result, summary, error, done."""
+    """Gera eventos: start, calibration, warmup, result, summary, error, done."""
     concurrency = max(1, min(concurrency, requests))
-    state = {"stream_options": True}
+    state = {"stream_options": True, "prompt": prompt}
 
-    def payload_for() -> Dict[str, Any]:
+    def payload_for(text: Optional[str] = None, tokens: Optional[int] = None) -> Dict[str, Any]:
         nonce = uuid.uuid4().hex[:12] if avoid_prompt_cache else None
-        return build_bench_payload(model, prompt, max_tokens, temperature, ignore_eos, nonce)
+        return build_bench_payload(model, text if text is not None else state["prompt"],
+                                   tokens or max_tokens, temperature, ignore_eos and not tokens, nonce)
 
-    async def one(client: httpx.AsyncClient) -> Tuple[Dict[str, Any], List[float]]:
-        payload = payload_for()
+    async def one(client: httpx.AsyncClient, payload: Optional[Dict[str, Any]] = None):
+        payload = payload or payload_for()
         try:
             return await measure_request(client, endpoint, api_key, payload, state["stream_options"])
         except StreamOptionsRejected:
@@ -292,13 +374,32 @@ async def run_benchmark(
     yield {"type": "start", "requests": requests, "concurrency": concurrency, "warmup": warmup, "model": model}
 
     tasks: List[asyncio.Task] = []
+    sampler: Optional[server_metrics.Sampler] = None
+    context_info: Optional[Dict[str, Any]] = None
     try:
         async with client:
+            if prompt_tokens_target:
+                # Calibração: mede quantos caracteres valem um token neste modelo (tokenizador real)
+                r0, _ = await one(client, payload_for(context_prompt(prompt, 0), 1))
+                if not r0["ok"]:
+                    yield {"type": "error", "message": f"Falha na calibração do contexto: {r0['error']}"}
+                    return
+                probe = 4000
+                r1, _ = await one(client, payload_for(context_prompt(prompt, probe), 1))
+                p0, p1 = r0.get("prompt_tokens"), (r1.get("prompt_tokens") if r1["ok"] else None)
+                if p0 and p1 and p1 > p0:
+                    cpt, calibrated = probe / (p1 - p0), True
+                else:
+                    cpt, calibrated, p0 = 4.0, False, p0 or 30
+                filler = max(0, int(round((prompt_tokens_target - p0) * cpt)))
+                state["prompt"] = context_prompt(prompt, filler)
+                context_info = {"target": prompt_tokens_target, "chars_per_token": round(cpt, 3),
+                                "calibrated": calibrated, "base_tokens": p0}
+                yield {"type": "calibration", **context_info}
+
             # Aquecimento: abre as conexões e aquece o modelo; não entra nas estatísticas
-            warm_ok = 0
             for i in range(warmup):
                 result, _ = await one(client)
-                warm_ok += 1 if result["ok"] else 0
                 yield {"type": "warmup", "done": i + 1, "total": warmup, "ok": result["ok"], "error": result["error"]}
                 if not result["ok"] and i == 0:
                     yield {"type": "error", "message": f"Falha no aquecimento: {result['error']}"}
@@ -312,9 +413,14 @@ async def run_benchmark(
                     started = time.perf_counter()
                     result, gaps = await one(client)
                     result["index"] = index + 1
-                    result["started_s"] = started
-                    result["finished_s"] = time.perf_counter()
+                    result["_started"] = started
+                    result["_finished"] = time.perf_counter()
                     await queue.put((result, gaps))
+
+            t0 = time.perf_counter()
+            if metrics_url:
+                sampler = server_metrics.Sampler(metrics_url, model)
+                await sampler.start(t0)
 
             results: List[Dict[str, Any]] = []
             all_gaps: List[float] = []
@@ -323,16 +429,26 @@ async def run_benchmark(
                 result, gaps = await queue.get()
                 results.append(result)
                 all_gaps.extend(gaps)
-                public = {k: v for k, v in result.items() if k not in ("started_s", "finished_s")}
+                public = {k: v for k, v in result.items() if not k.startswith("_")}
+                public["start_s"] = round(result["_t_send"] - t0, 4)
+                public["first_s"] = round(result["_t_first"] - t0, 4) if result.get("_t_first") else None
+                public["end_s"] = round(result["_t_end"] - t0, 4)
                 yield {"type": "result", "done": done, "total": requests, "result": public}
 
-            wall = (max(r["finished_s"] for r in results) - min(r["started_s"] for r in results)) if results else None
+            server = await sampler.stop() if sampler else None
+            sampler = None
+            wall = (max(r["_finished"] for r in results) - min(r["_started"] for r in results)) if results else None
             summary = summarize(results, all_gaps, wall)
             summary["stream_usage"] = state["stream_options"]
+            summary["timeline"] = timeline(results, t0)
+            summary.update(steady_state(results, t0, concurrency))
+            summary["server"] = server
+            summary["context"] = context_info
             summary["settings"] = {
                 "model": model, "requests": requests, "concurrency": concurrency, "warmup": warmup,
                 "max_tokens": max_tokens, "temperature": temperature,
                 "avoid_prompt_cache": avoid_prompt_cache, "ignore_eos": ignore_eos,
+                "prompt_tokens_target": prompt_tokens_target, "metrics_url": bool(metrics_url),
             }
             yield {"type": "summary", "summary": summary}
             yield {"type": "done"}
@@ -343,3 +459,5 @@ async def run_benchmark(
         for task in tasks:
             if not task.done():
                 task.cancel()
+        if sampler is not None:
+            await sampler.stop()

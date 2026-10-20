@@ -5,4 +5,5 @@ httpx==0.28.1
 pydantic==2.14.1
 pypdf==6.21.1
 pandas==2.3.3
+altair==6.2.2
 requests==2.34.2

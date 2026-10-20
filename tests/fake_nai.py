@@ -11,6 +11,10 @@ O comportamento muda conforme o nome do modelo:
 - timed-T-I-N   : primeiro token após T ms, um token a cada I ms, N tokens
                   (respeita max_tokens; com ignore_eos gera sempre max_tokens).
                   Prompt já visto responde com TTFT 10x menor (simula cache de prefixo).
+- load-T-I-N    : como um servidor sob carga: TTFT = T ms + 0,02 ms por token de prompt,
+                  intervalo = I ms × (1 + 0,15 × (em execução − 1)), lote máximo de 8
+                  (o resto espera na fila), prompt_tokens ≈ caracteres ÷ 4 + 12.
+                  Expõe /metrics no formato do vLLM (KV cache, fila, cache de prefixo).
 Qualquer modelo exige 'Authorization: Bearer good-key'.
 """
 import asyncio
@@ -26,6 +30,10 @@ LAST = {}
 SEEN_PROMPTS = set()
 STATS = {"in_flight": 0, "max_in_flight": 0, "requests": 0}
 TIMINGS = []  # horários reais de envio no servidor (referência para validar a medição)
+KV_CAPACITY = 20000  # tokens que cabem no KV cache simulado
+LOAD = {"running": 0, "waiting": 0, "kv_tokens": 0, "kv_peak": 0.0, "prefix_hits": 0, "prefix_queries": 0,
+        "prompt_tokens": 0, "generation_tokens": 0}
+BATCHES = {}  # semáforo do lote por event loop (os testes usam loops diferentes)
 
 
 def check_auth(request: Request):
@@ -53,6 +61,8 @@ async def stats():
 async def reset():
     SEEN_PROMPTS.clear()
     TIMINGS.clear()
+    LOAD.update({"running": 0, "waiting": 0, "kv_tokens": 0, "kv_peak": 0.0, "prefix_hits": 0,
+                 "prefix_queries": 0, "prompt_tokens": 0, "generation_tokens": 0})
     STATS.update({"in_flight": 0, "max_in_flight": 0, "requests": 0})
     return STATS
 
@@ -60,6 +70,72 @@ async def reset():
 @app.get("/timings")
 async def timings():
     return TIMINGS
+
+
+@app.get("/load")
+async def load():
+    return LOAD
+
+
+@app.get("/metrics")
+async def metrics():
+    from fastapi.responses import PlainTextResponse
+    model = 'model_name="load-model"'
+    text = "\n".join([
+        "# HELP vllm:kv_cache_usage_perc KV-cache usage. 1 means 100 percent usage.",
+        "# TYPE vllm:kv_cache_usage_perc gauge",
+        f"vllm:kv_cache_usage_perc{{{model},engine=\"0\"}} {LOAD['kv_tokens'] / KV_CAPACITY}",
+        f"vllm:num_requests_running{{{model},engine=\"0\"}} {LOAD['running']}",
+        f"vllm:num_requests_waiting{{{model},engine=\"0\"}} {LOAD['waiting']}",
+        "# TYPE vllm:prefix_cache_hits counter",
+        f"vllm:prefix_cache_hits_total{{{model}}} {LOAD['prefix_hits']}",
+        f"vllm:prefix_cache_queries_total{{{model}}} {LOAD['prefix_queries']}",
+        f"vllm:num_preemptions_total{{{model}}} 0",
+        f"vllm:prompt_tokens_total{{{model}}} {LOAD['prompt_tokens']}",
+        f"vllm:generation_tokens_total{{{model}}} {LOAD['generation_tokens']}",
+        "",
+    ])
+    return PlainTextResponse(text)
+
+
+async def load_stream(body, ttft_ms, itl_ms, n_tokens, t_received):
+    batch = BATCHES.setdefault(id(asyncio.get_running_loop()), asyncio.Semaphore(8))
+    prompt = body["messages"][-1]["content"]
+    p_tokens = len(prompt) // 4 + 12
+    n = body.get("max_tokens") if body.get("ignore_eos") else min(n_tokens, body.get("max_tokens") or n_tokens)
+    LOAD["prefix_queries"] += p_tokens
+    if prompt in SEEN_PROMPTS:
+        LOAD["prefix_hits"] += p_tokens
+    SEEN_PROMPTS.add(prompt)
+    STATS["requests"] += 1
+    LOAD["waiting"] += 1
+    async with batch:
+        LOAD["waiting"] -= 1
+        LOAD["running"] += 1
+        STATS["in_flight"] += 1
+        STATS["max_in_flight"] = max(STATS["max_in_flight"], STATS["in_flight"])
+        held = 0
+        try:
+            LOAD["kv_tokens"] += p_tokens
+            held += p_tokens
+            LOAD["prompt_tokens"] += p_tokens
+            await asyncio.sleep((ttft_ms + 0.02 * p_tokens) / 1000)
+            for i in range(n):
+                if i:
+                    await asyncio.sleep(itl_ms * (1 + 0.15 * (LOAD["running"] - 1)) / 1000)
+                LOAD["kv_tokens"] += 1
+                held += 1
+                LOAD["generation_tokens"] += 1
+                LOAD["kv_peak"] = max(LOAD["kv_peak"], LOAD["kv_tokens"] / KV_CAPACITY * 100)
+                yield "data: " + json.dumps({"choices": [{"delta": {"content": f"t{i} "}}]}) + "\n\n"
+            if body.get("stream_options", {}).get("include_usage"):
+                yield "data: " + json.dumps({"choices": [], "usage": {"prompt_tokens": p_tokens, "completion_tokens": n,
+                                                                      "total_tokens": p_tokens + n}}) + "\n\n"
+            yield "data: [DONE]\n\n"
+        finally:
+            LOAD["kv_tokens"] -= held
+            LOAD["running"] -= 1
+            STATS["in_flight"] -= 1
 
 
 async def timed_stream(body, ttft_ms, itl_ms, n_tokens, t_received):
@@ -99,6 +175,9 @@ async def chat(request: Request):
     LAST.clear()
     LAST.update(body)
     model = body["model"]
+    if model.startswith("load-"):
+        _, t, i, n = model.split("-")
+        return StreamingResponse(load_stream(body, float(t), float(i), int(n), t_received), media_type="text/event-stream")
     if model.startswith("timed-"):
         _, t, i, n = model.split("-")
         return StreamingResponse(timed_stream(body, float(t), float(i), int(n), t_received), media_type="text/event-stream")
