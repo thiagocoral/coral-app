@@ -2,6 +2,6 @@ fastapi
 uvicorn
 streamlit
 httpx
-mcp
+mcp<2
 fastmcp
 pydantic
