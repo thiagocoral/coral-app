@@ -10,8 +10,10 @@ para que o manifesto atual continue funcionando sem alterações.
 
 import json
 import os
+import re
 import time
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple
+from typing import Any, AsyncIterator, Dict, List, Mapping, Optional, Tuple
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -51,6 +53,91 @@ MAX_HISTORY_MESSAGES = _env_int("MAX_HISTORY_MESSAGES", 20)
 DOC_MAX_CHARS = _env_int("DOC_MAX_CHARS", 20000)
 REQUEST_TIMEOUT = _env_float("NAI_REQUEST_TIMEOUT", 300.0)
 CONNECT_TIMEOUT = _env_float("NAI_CONNECT_TIMEOUT", 10.0)
+
+
+# ---------------------------------------------------------------------------
+# Perfis de endpoint (endpoints salvos)
+# ---------------------------------------------------------------------------
+#
+# Definidos por variáveis de ambiente no backend, por exemplo:
+#   NAI_PROFILE_1_NAME=GPU L40S - Llama 3.1 8B
+#   NAI_PROFILE_1_URL=https://nai.local/enterpriseai/gateway/v1/chat/completions
+#   NAI_PROFILE_1_MODEL=llama-31-8b
+#   NAI_PROFILE_1_API_KEY=...        (de preferência vindo de um Secret)
+# O endpoint padrão (NAI_ENDPOINT / MODEL_NAME / NAI_API_KEY) vira o perfil "default".
+# As API Keys ficam só no servidor: a rota /profiles nunca as devolve.
+
+_PROFILE_URL = re.compile(r"^NAI_PROFILE_(\d+)_URL$")
+
+
+def endpoint_host(url: Optional[str]) -> str:
+    """scheme://host:porta normalizado, usado para decidir se uma chave pode ser enviada."""
+    try:
+        parts = urlsplit((url or "").strip())
+    except ValueError:
+        return ""
+    if not parts.scheme or not parts.netloc:
+        return ""
+    return f"{parts.scheme.lower()}://{parts.netloc.lower()}"
+
+
+def load_profiles(env: Optional[Mapping[str, str]] = None) -> List[Dict[str, str]]:
+    env = os.environ if env is None else env
+    profiles: List[Dict[str, str]] = []
+    default_url = (env.get("NAI_ENDPOINT") or "").strip()
+    if default_url:
+        profiles.append({
+            "id": "default",
+            "name": (env.get("NAI_PROFILE_DEFAULT_NAME") or "Padrão (manifest)").strip(),
+            "endpoint_url": default_url,
+            "model_name": (env.get("MODEL_NAME") or "").strip(),
+            "api_key": (env.get("NAI_API_KEY") or "").strip(),
+        })
+    numbers = sorted({int(m.group(1)) for k in env for m in [_PROFILE_URL.match(k)] if m})
+    for n in numbers:
+        url = (env.get(f"NAI_PROFILE_{n}_URL") or "").strip()
+        if not url:
+            continue
+        profiles.append({
+            "id": str(n),
+            "name": (env.get(f"NAI_PROFILE_{n}_NAME") or f"Endpoint {n}").strip(),
+            "endpoint_url": url,
+            "model_name": (env.get(f"NAI_PROFILE_{n}_MODEL") or "").strip(),
+            "api_key": (env.get(f"NAI_PROFILE_{n}_API_KEY") or "").strip(),
+        })
+    return profiles
+
+
+PROFILES = load_profiles()
+
+
+def public_profiles() -> List[Dict[str, Any]]:
+    return [
+        {"id": p["id"], "name": p["name"], "endpoint_url": p["endpoint_url"], "model_name": p["model_name"],
+         "has_api_key": bool(p["api_key"])}
+        for p in PROFILES
+    ]
+
+
+def resolve_api_key(endpoint: str, api_key: Optional[str], profile_id: Optional[str] = None) -> str:
+    """Chave digitada > chave do perfil escolhido > chave de outro perfil do mesmo host.
+
+    Uma chave salva só é usada se o endpoint estiver no mesmo host do perfil, para
+    nunca mandar a chave de um NAI para uma URL digitada que aponte para outro lugar.
+    """
+    if api_key and api_key.strip():
+        return api_key.strip()
+    host = endpoint_host(endpoint)
+    if not host:
+        return ""
+    if profile_id:
+        for p in PROFILES:
+            if p["id"] == profile_id and p["api_key"] and endpoint_host(p["endpoint_url"]) == host:
+                return p["api_key"]
+    for p in PROFILES:
+        if p["api_key"] and endpoint_host(p["endpoint_url"]) == host:
+            return p["api_key"]
+    return ""
 
 
 def ssl_verify_setting():

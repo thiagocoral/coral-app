@@ -39,6 +39,20 @@ spec:
           value: ""
         - name: MODEL_NAME
           value: "unified-endpoint"
+        # Endpoints salvos (opcional): aparecem com ⭐ no seletor do app.
+        # A API Key fica só no backend e pode vir de um Secret. Exemplo:
+        # - name: NAI_PROFILE_1_NAME
+        #   value: "GPU L40S - Llama 3.1 8B"
+        # - name: NAI_PROFILE_1_URL
+        #   value: "https://<nai>/enterpriseai/gateway/v1/chat/completions"
+        # - name: NAI_PROFILE_1_MODEL
+        #   value: "llama-31-8b"
+        # - name: NAI_PROFILE_1_API_KEY
+        #   valueFrom:
+        #     secretKeyRef:
+        #       name: nai-endpoints
+        #       key: profile-1-api-key
+        #       optional: true
 ---
 apiVersion: v1
 kind: Service

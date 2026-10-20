@@ -22,6 +22,7 @@ def fake_backend(monkeypatch):
     monkeypatch.setattr(nai, "make_client", make_client)
     monkeypatch.setattr(nai, "DEFAULT_ENDPOINT", ENDPOINT)
     monkeypatch.setattr(nai, "DEFAULT_KEY", "good-key")
+    monkeypatch.setattr(nai, "PROFILES", nai.load_profiles({"NAI_ENDPOINT": ENDPOINT, "NAI_API_KEY": "good-key"}))
     monkeypatch.setattr(nai, "DEFAULT_MODEL", "timed-5-1-10")
     fake_nai.SEEN_PROMPTS.clear()
     fake_nai.TIMINGS.clear()
