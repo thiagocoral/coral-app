@@ -26,11 +26,11 @@ with st.sidebar:
     # Buscamos do manifesto usando os.getenv para preencher os campos
     user_endpoint = st.text_input(
         "Nutanix Endpoint URL", 
-        value=os.getenv("NAI_ENDPOINT", "https://10-54-94-16.sslip.nutanixdemo.com/enterpriseai/v1/chat/completions")
+        value=os.getenv("NAI_ENDPOINT", "https://10.42.163.114/enterpriseai/gateway/v1/chat/completions")
     )
     user_model = st.text_input(
         "Model Name", 
-        value=os.getenv("MODEL_NAME", "coral-endpoint")
+        value=os.getenv("MODEL_NAME", "unified-endpoint")
     )
     user_api_key = st.text_input(
         "API Key", 
